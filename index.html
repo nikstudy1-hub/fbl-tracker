@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f17">
+<title>FBL Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root{
+    --bg:#0b0f17; --card:#141a26; --card2:#1b2333; --line:#26304a; --txt:#e7ecf5; --dim:#8a95ad;
+    --accent:#3aa0ff; --kick:#ff7a3c; --jump:#b06bff; --impact:#ff4d6d; --run:#37d67a; --sprint:#ffd23f; --walk:#2dd4bf;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt);
+       padding-bottom:76px;min-height:100vh}
+  h1,h2,h3{font-weight:600;margin:0}
+  .wrap{max-width:640px;margin:0 auto;padding:14px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;position:sticky;top:0;
+          background:rgba(11,15,23,.92);backdrop-filter:blur(8px);z-index:10;border-bottom:1px solid var(--line)}
+  .brand{font-size:17px}.brand b{color:var(--accent)}
+  .conn{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+  .dot{width:9px;height:9px;border-radius:50%;background:#556;transition:.3s}
+  .dot.on{background:#37d67a;box-shadow:0 0 10px #37d67a}
+  button{font-family:inherit;cursor:pointer;border:0;border-radius:12px;padding:12px 16px;font-size:15px;font-weight:600;
+         background:var(--accent);color:#04101f}
+  button.ghost{background:var(--card2);color:var(--txt);border:1px solid var(--line)}
+  button.big{width:100%;padding:16px;font-size:16px}
+  button.rec{background:var(--impact);color:#fff}
+  button:disabled{opacity:.4}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+  .muted{color:var(--dim);font-size:13px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
+  .tile .n{font-size:26px;font-weight:800}.tile .l{color:var(--dim);font-size:12px;margin-top:3px}
+  input,select{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-size:15px}
+  label{display:block;font-size:13px;color:var(--dim);margin:10px 0 4px}
+  .feed{max-height:240px;overflow:auto}
+  .row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .row:last-child{border-bottom:0}.row .ico{font-size:18px;width:24px;text-align:center}
+  .row .t{font-weight:700;width:78px}.row .d{color:var(--dim);flex:1}.row .tm{color:var(--dim);font-size:12px}
+  .nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#0e1420;border-top:1px solid var(--line);z-index:20}
+  .nav a{flex:1;text-align:center;padding:9px 0 10px;color:var(--dim);text-decoration:none;font-size:11px}
+  .nav a.act{color:var(--accent)}
+  .nav a .i{display:block;font-size:20px;margin-bottom:2px}
+  .hero{text-align:center;padding:22px 0}
+  .hero .e{font-size:64px;line-height:1}.hero .nm{font-size:32px;font-weight:800;margin-top:6px}
+  .hero .d{color:var(--dim);margin-top:4px;height:18px}
+  .pill{display:inline-block;padding:4px 12px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-size:12px}
+  .rec-live{font-variant-numeric:tabular-nums}
+  .bar{height:8px;border-radius:6px;background:var(--card2);overflow:hidden}.bar>i{display:block;height:100%}
+  section{display:none}section.act{display:block}
+  .health{font-size:12px;color:var(--dim)}
+  .health b{color:var(--run)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">⚽ FBL<b>Tracker</b></div>
+  <div class="conn"><span class="dot" id="dot"></span><span id="connTxt">не подключено</span></div>
+</div>
+
+<div class="wrap">
+  <!-- ===== УСТРОЙСТВО ===== -->
+  <section id="tab-device" class="act">
+    <div class="hero">
+      <div class="e" id="heroE">🎯</div>
+      <div class="nm" id="heroN">ГОТОВ</div>
+      <div class="d" id="heroD">подключи датчик FBL-Sensor-01</div>
+      <div style="margin-top:10px"><span class="pill" id="sdPill">💾 SD: —</span></div>
+    </div>
+    <button class="big" id="connectBtn">Подключить датчик</button>
+    <div class="grid3" style="margin-top:14px">
+      <div class="tile"><div class="n" id="dKick" style="color:var(--kick)">0</div><div class="l">⚽ удары</div></div>
+      <div class="tile"><div class="n" id="dJump" style="color:var(--jump)">0</div><div class="l">🦘 прыжки</div></div>
+      <div class="tile"><div class="n" id="dSprint" style="color:var(--sprint)">0</div><div class="l">⚡ спринты</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-bottom:8px">Живой поток</h3>
+      <div class="feed" id="liveFeed"><div class="muted">события появятся после подключения…</div></div>
+    </div>
+  </section>
+
+  <!-- ===== СЕССИЯ ===== -->
+  <section id="tab-session">
+    <div class="card">
+      <h2>Запись сессии</h2>
+      <p class="muted">Датчик стримит сырые данные на телефон. Держи приложение открытым во время тренировки.</p>
+      <div class="hero" style="padding:14px 0">
+        <div class="nm rec-live" id="recTime">00:00</div>
+        <div class="d" id="recState">не записывается</div>
+      </div>
+      <div class="grid3">
+        <div class="tile"><div class="n" id="sKick" style="color:var(--kick)">0</div><div class="l">удары</div></div>
+        <div class="tile"><div class="n" id="sJump" style="color:var(--jump)">0</div><div class="l">прыжки</div></div>
+        <div class="tile"><div class="n" id="sSprint" style="color:var(--sprint)">0</div><div class="l">спринты</div></div>
+      </div>
+      <div class="health" style="margin:12px 0 14px" id="recHealth">поток: — Гц · сэмплов: 0</div>
+      <button class="big rec" id="recBtn" disabled>● Начать запись</button>
+    </div>
+    <div class="card">
+      <label>Тип сессии</label>
+      <select id="sType"><option>Тренировка</option><option>Матч</option><option>Дриллы</option><option>Тест</option></select>
+      <label>Заметки</label>
+      <input id="sNote" placeholder="напр. работа над ударом">
+    </div>
+  </section>
+
+  <!-- ===== ИСТОРИЯ ===== -->
+  <section id="tab-history">
+    <div class="card"><h2>История сессий</h2><div id="histList"><div class="muted">пока нет записанных сессий</div></div></div>
+  </section>
+
+  <!-- ===== АНАЛИТИКА (одна сессия) ===== -->
+  <section id="tab-analytics">
+    <button class="ghost" id="backHist" style="margin-bottom:12px">← к истории</button>
+    <div id="analytics"></div>
+  </section>
+
+  <!-- ===== ПРОФИЛЬ ===== -->
+  <section id="tab-profile">
+    <div class="card">
+      <h2>Профиль игрока</h2>
+      <label>Имя</label><input id="pName" placeholder="Имя">
+      <label>Рабочая нога</label><select id="pFoot"><option>Правая</option><option>Левая</option></select>
+      <label>Рост, см</label><input id="pHeight" type="number" placeholder="180">
+      <label>Длина стопы, см <span class="muted">(для оценки скорости удара)</span></label><input id="pFootLen" type="number" placeholder="26">
+      <button class="big" id="saveProfile" style="margin-top:14px">Сохранить</button>
+      <div class="muted" id="profSaved" style="margin-top:8px"></div>
+    </div>
+    <div class="card"><h3>Данные</h3><p class="muted">Сессии хранятся на телефоне. Экспортируй важные в CSV.</p></div>
+  </section>
+</div>
+
+<nav class="nav">
+  <a data-tab="device" class="act"><span class="i">📡</span>Датчик</a>
+  <a data-tab="session"><span class="i">⏺</span>Сессия</a>
+  <a data-tab="history"><span class="i">📊</span>История</a>
+  <a data-tab="profile"><span class="i">👤</span>Профиль</a>
+</nav>
+
+<script src="analytics.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
