@@ -89,9 +89,25 @@ function onData(dv){
     if(detector) detector.push(ax,ay,az,gx,gy,gz);     // распознавание по личным порогам
     if(rec){ rec.raw.ax.push(ax);rec.raw.ay.push(ay);rec.raw.az.push(az);rec.raw.gx.push(gx);rec.raw.gy.push(gy);rec.raw.gz.push(gz); }
     if(calib.recording){ calibSample(ax,ay,az,gx,gy,gz); }
+    // отладка
+    const aM=Math.hypot(ax,ay,az), gM=Math.hypot(gx,gy,gz);
+    dbg.n++; dbg.lastA=aM; if(aM>dbg.peakA)dbg.peakA=aM; if(gM>dbg.peakG)dbg.peakG=gM;
+    dbg.sumDyn+=Math.abs(aM-1); dbg.cntDyn++;
   }
   if(rec) rec.samples+=n;
 }
+let dbg={n:0,peakA:0,peakG:0,lastA:1,sumDyn:0,cntDyn:0};
+setInterval(()=>{
+  const el=$('dbg'); if(!el)return;
+  if(!connected){ el.textContent='нет данных — подключи датчик'; return; }
+  let t={}; try{ t=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
+  const act=dbg.cntDyn?dbg.sumDyn/dbg.cntDyn:0;
+  el.innerHTML=`поток ${dbg.n*2} Гц · a=${dbg.lastA.toFixed(1)}g<br>`+
+    `<b style="color:#ff7a3c">ПИК ускор=${dbg.peakA.toFixed(1)}g</b> · пик гиро=${Math.round(dbg.peakG)}<br>`+
+    `актив=${act.toFixed(2)} · состояние ${prevState||'—'}<br>`+
+    `порог удара &gt;${t.kickAcc||'—'}g · порог бега &gt;${t.zones?t.zones.walk.toFixed(2):'—'}`;
+  dbg.n=0;dbg.peakA=0;dbg.peakG=0;dbg.sumDyn=0;dbg.cntDyn=0;
+},500);
 
 // ================= ЗАПИСЬ =================
 $('recBtn').onclick=()=>{ rec?stopRec(false):startRec(); };
@@ -349,7 +365,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.0';
+const APP_VERSION='v1.1';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
