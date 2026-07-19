@@ -111,12 +111,14 @@
   <section id="tab-calib">
     <div class="card">
       <h2>Калибровка</h2>
-      <p class="muted">Надень датчик на ногу. Выбери движение, поделай его 6–8 раз, нажми «Пауза». Пройди по всем — приложение подстроит пороги под тебя.</p>
-      <div id="calibLabels" class="grid2" style="margin-top:12px"></div>
-      <div class="muted" id="calibStatus" style="margin-top:12px">подключи датчик и выбери движение</div>
-      <div id="calibStats" style="margin-top:10px"></div>
-      <button class="big" id="calibCalc" style="margin-top:14px">Рассчитать и сохранить пороги</button>
-      <div class="muted" id="calibResult" style="margin-top:10px"></div>
+      <p class="muted">Для каждого движения: <b>«Записать»</b> → поделай 6–8 раз → <b>«Стоп»</b>. Обязательно запиши <b>Бег и Спринт</b> — по ним ставится порог столкновений.</p>
+      <div id="calibList" style="display:flex;flex-direction:column;gap:10px;margin-top:12px"></div>
+      <button class="big" id="calibCalc" style="margin-top:14px">📊 Рассчитать и сохранить пороги</button>
+      <div id="calibResult" style="margin-top:12px;font-size:14px"></div>
+    </div>
+    <div class="card" id="calibSummaryCard" style="display:none">
+      <h3 style="margin-bottom:10px">Полная информация по калибровке</h3>
+      <div id="calibSummary"></div>
     </div>
   </section>
 
