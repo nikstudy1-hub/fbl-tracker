@@ -32,11 +32,11 @@ function analyze(session, profile){
   const cadence = durS>0 ? Math.round(steps/durS*60) : 0;
 
   // ---- зоны по окнам 0.7с ----
-  const W=Math.round(0.7*RAW_HZ); const zoneT={idle:0,walk:0,run:0,sprint:0}; const timeline=[];
+  const W=Math.round(0.7*RAW_HZ); const zoneT={idle:0,walk:0,run:0}; const timeline=[];
   for(let i=0;i<N;i+=W){
     let sum=0,c=0; for(let j=i;j<Math.min(i+W,N);j++){sum+=aDyn[j];c++;}
     const act=c?sum/c:0;
-    let z = act<Z.idle?'idle':act<Z.walk?'walk':act<Z.run?'run':'sprint';
+    let z = act<Z.idle?'idle':act<Z.walk?'walk':'run';
     zoneT[z]+=c/RAW_HZ;
     timeline.push({t:i/RAW_HZ, act, z});
   }
@@ -118,13 +118,13 @@ const ZN={idle:'Покой',walk:'Ходьба',run:'Бег',sprint:'Сприн�
 function svgDonut(zones){
   const total=Object.values(zones).reduce((a,b)=>a+b,0)||1;
   let off=0; const R=52,C=2*Math.PI*R; const segs=[];
-  for(const k of ['idle','walk','run','sprint']){
+  for(const k of ['idle','walk','run']){
     const frac=zones[k]/total; const len=frac*C;
     segs.push(`<circle cx="70" cy="70" r="${R}" fill="none" stroke="${ZC[k]}" stroke-width="16"
       stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`);
     off+=len;
   }
-  const legend=['idle','walk','run','sprint'].map(k=>
+  const legend=['idle','walk','run'].map(k=>
     `<div style="display:flex;align-items:center;gap:6px;font-size:13px">
        <span style="width:10px;height:10px;border-radius:2px;background:${ZC[k]}"></span>
        ${ZN[k]} · ${Math.round(zones[k])}с</div>`).join('');

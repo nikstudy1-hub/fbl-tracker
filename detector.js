@@ -7,8 +7,7 @@ function loadThresholds(){
   const z=(c.zones)||{idle:0.086,walk:0.379,run:0.699};
   return {
     idle:z.idle, walk:z.walk, run:z.run,
-    // порог удара не может быть ниже беговых пиков (~1300°/с на лодыжке) — страховка от заниженной калибровки
-    kickGyro: Math.max(c.kickGyro || 1400, 1300),
+    kickGyro: c.kickGyro || 1200,   // °/с — задаётся калибровкой (выше бегового пика)
     freefall:0.35, freefallMin:60, landing:2.5,
     capMs:80, coolMs:350, winMs:700, idleGyro:30, dt:10
   };
@@ -50,7 +49,7 @@ class Detector {
     this.actSum+=aDyn; this.gSum+=gMag; this.actN++;
     if(now-this.winStart>=T.winMs && this.actN>0){
       const act=this.actSum/this.actN, gAvg=this.gSum/this.actN;
-      let st = (act<T.idle && gAvg<T.idleGyro)?'IDLE': act<T.walk?'WALK': act<T.run?'RUN':'SPRINT';
+      let st = (act<T.idle && gAvg<T.idleGyro)?'IDLE': act<T.walk?'WALK':'RUN';
       if(st!==this.state){ this.state=st; if(this.cb.onState)this.cb.onState(st,act); }
       this.actSum=0; this.gSum=0; this.actN=0; this.winStart=now;
     }

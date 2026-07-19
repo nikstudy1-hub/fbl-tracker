@@ -5,12 +5,12 @@ const CTRL   ='a0f10002-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const DATA   ='a0f10003-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 
 const EV = {KICK:{e:'⚽',n:'УДАР',c:'#ff7a3c'},JUMP:{e:'🦘',n:'ПРЫЖОК',c:'#b06bff'},
-  IDLE:{e:'🧍',n:'ПОКОЙ',c:'#7a86a1'},WALK:{e:'🚶',n:'ХОДЬБА',c:'#2dd4bf'},RUN:{e:'🏃',n:'БЕГ',c:'#37d67a'},SPRINT:{e:'⚡',n:'СПРИНТ',c:'#ffd23f'}};
+  IDLE:{e:'🧍',n:'ПОКОЙ',c:'#7a86a1'},WALK:{e:'🚶',n:'ХОДЬБА',c:'#2dd4bf'},RUN:{e:'🏃',n:'БЕГ',c:'#37d67a'}};
 
 const $=id=>document.getElementById(id);
 let dev=null, ctrlCh=null, connected=false, streaming=false, detector=null;
 let prevState=null;
-let dCounts={KICK:0,JUMP:0,SPRINT:0};
+let dCounts={KICK:0,JUMP:0};
 
 // запись
 let rec=null;              // {startMs, events:[], raw:{ax..}, samples}
@@ -68,16 +68,14 @@ function onDetEvent(type,data){
 function onDetState(state,act){
   const info=EV[state]; if(!info) return;
   hero(info,`${state} a=${act.toFixed(2)}g`);
-  if(state==='SPRINT'&&prevState!=='SPRINT'){ dCounts.SPRINT++; if(rec)recCount('SPRINT'); refreshCounts(); }
   prevState=state;
   if(rec) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
 }
 function hero(info,msg){ $('heroE').textContent=info.e; $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg; }
-function refreshCounts(){ $('dKick').textContent=dCounts.KICK; $('dJump').textContent=dCounts.JUMP; $('dSprint').textContent=dCounts.SPRINT; }
+function refreshCounts(){ $('dKick').textContent=dCounts.KICK; $('dJump').textContent=dCounts.JUMP; }
 function recCount(type){
   if(type==='KICK')$('sKick').textContent=+($('sKick').textContent)+1;
   if(type==='JUMP')$('sJump').textContent=+($('sJump').textContent)+1;
-  if(type==='SPRINT')$('sSprint').textContent=+($('sSprint').textContent)+1;
 }
 
 // ---- сырые данные (бинарь) ----
@@ -100,8 +98,8 @@ $('recBtn').onclick=()=>{ rec?stopRec(false):startRec(); };
 async function startRec(){
   if(!connected) return;
   rec={startMs:Date.now(), events:[], raw:{ax:[],ay:[],az:[],gx:[],gy:[],gz:[]}, samples:0};
-  dCounts={KICK:0,JUMP:0,SPRINT:0};
-  $('sKick').textContent='0';$('sJump').textContent='0';$('sSprint').textContent='0';
+  dCounts={KICK:0,JUMP:0};
+  $('sKick').textContent='0';$('sJump').textContent='0';
   // поток уже идёт (включён при подключении) — просто начинаем копить
   try{ wakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
   $('recBtn').textContent='■ Остановить'; $('recState').textContent='● идёт запись'; $('recState').style.color='#ff4d6d';
@@ -159,20 +157,18 @@ async function openAnalytics(id){
       <h2>${s.type} · ${d.toLocaleDateString('ru-RU')}</h2>
       <div class="muted">${d.toLocaleTimeString('ru-RU')} · длительность ${mmss(Math.floor(m.durS))}${s.note?' · '+s.note:''}</div>
     </div>
-    <div class="grid3">
+    <div class="grid2">
       <div class="tile"><div class="n" style="color:var(--kick)">${m.kicks}</div><div class="l">⚽ удары</div></div>
       <div class="tile"><div class="n" style="color:var(--jump)">${m.jumps}</div><div class="l">🦘 прыжки</div></div>
-      <div class="tile"><div class="n" style="color:var(--sprint)">${m.sprints}</div><div class="l">⚡ спринты</div></div>
     </div>
     <div class="grid3" style="margin-top:10px">
       <div class="tile"><div class="n">${m.steps}</div><div class="l">шаги</div></div>
       <div class="tile"><div class="n">${m.cadence}</div><div class="l">каденс /мин</div></div>
       <div class="tile"><div class="n">${m.bursts}</div><div class="l">рывки</div></div>
     </div>
-    <div class="grid3" style="margin-top:10px">
+    <div class="grid2" style="margin-top:10px">
       <div class="tile"><div class="n">${m.turns}</div><div class="l">повороты</div></div>
       <div class="tile"><div class="n">${m.fatigue}%</div><div class="l">усталость</div></div>
-      <div class="tile"><div class="n">${m.sprints+m.bursts}</div><div class="l">выс. интенс.</div></div>
     </div>
     <div class="card" style="margin-top:14px"><h3 style="margin-bottom:10px">Зоны интенсивности</h3>${svgDonut(m.zones)}</div>
     <div class="card"><h3 style="margin-bottom:10px">Динамика сессии</h3>${svgTimeline(m.timeline)}</div>
@@ -213,7 +209,7 @@ async function exportCSV(id){
 }
 
 // ================= КАЛИБРОВКА =================
-const CALIB_LABELS=[['IDLE','🧍 Покой'],['WALK','🚶 Ходьба'],['RUN','🏃 Бег'],['SPRINT','⚡ Спринт'],['KICK','⚽ Удар'],['JUMP','🦘 Прыжок']];
+const CALIB_LABELS=[['IDLE','🧍 Покой'],['WALK','🚶 Ходьба'],['RUN','🏃 Бег'],['KICK','⚽ Удар'],['JUMP','🦘 Прыжок']];
 let calib={recording:null, startMs:0, timer:null, data:{}};
 
 function buildCalib(){
@@ -269,34 +265,41 @@ function showSavedCalib(){
     renderCalibSummary(calib.data, s);
   } else { $('calibResult').innerHTML='<span class="muted">поделай движения и нажми «Рассчитать»</span>'; }
 }
+// вычисление порогов из записанных движений (без спринта)
+function computeThresholds(D){
+  const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const maxA=a=>a&&a.length?Math.max(...a):null;
+  const mid=(a,b)=>(a!=null&&b!=null)?(a+b)/2:null;
+  const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act);
+  if(run==null&&walk==null) return null;
+  const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: (run!=null? run*1.5 : 0.9) };
+  // порог удара — ВЫШЕ самого быстрого бега (бег+спринт трактуем как «быстрый бег»)
+  const fastMax = Math.max(maxA(D.RUN&&D.RUN.gyro)||0, maxA(D.SPRINT&&D.SPRINT.gyro)||0);
+  const kickGyro = fastMax>0 ? Math.round(fastMax*1.1) : 1200;
+  return {zones, kickGyro, fastMax};
+}
 function calibCalc(){
   if(calib.recording) calibStop();
-  const D=calib.data;
-  const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
-  const pct=(a,p)=>{if(!a||!a.length)return null;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p/100*s.length))];};
-  const mid=(a,b)=>(a!=null&&b!=null)?(a+b)/2:null;
-  const cat=(...as)=>as.filter(Boolean).reduce((r,a)=>r.concat(a),[]);
-  const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act), sprint=mean(D.SPRINT&&D.SPRINT.act);
-  if(run==null&&walk==null){ $('calibResult').innerHTML='<span style="color:var(--sprint)">запиши хотя бы Ходьбу и Бег</span>'; return; }
-  const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: mid(run,sprint)??0.699 };
-  // порог удара — по ПИКАМ вращения: между «беговым потолком» и типичным ударом
-  const runHi  = pct(cat(D.RUN&&D.RUN.gyro, D.SPRINT&&D.SPRINT.gyro), 98);
-  const kickTyp= pct(D.KICK&&D.KICK.gyro, 50);
-  let kickGyro;
-  if(kickTyp!=null && runHi!=null){ kickGyro = kickTyp>runHi*1.05 ? Math.round((runHi+kickTyp)/2) : Math.round(runHi*1.1); }
-  else if(runHi!=null){ kickGyro = Math.round(runHi*1.15); }
-  else { kickGyro = 1400; }
-  kickGyro = Math.max(kickGyro, 1300);   // не ниже беговых пиков
-  const saved={zones, kickGyro, ts:Date.now()};
-  localStorage.setItem('fbl_zones',JSON.stringify(zones));
+  const t=computeThresholds(calib.data);
+  if(!t){ $('calibResult').innerHTML='<span style="color:var(--sprint)">запиши хотя бы Ходьбу и Бег</span>'; return; }
+  const saved={zones:t.zones, kickGyro:t.kickGyro, ts:Date.now()};
+  localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
   saveCalibData();
   if(detector) detector.reloadThresholds();
   $('calibResult').innerHTML='<span style="color:var(--run)">✓ Сохранено навсегда и применено — к главному экрану и аналитике.</span>';
-  renderCalibSummary(D, saved);
+  renderCalibSummary(calib.data, saved);
 }
 function saveCalibData(){ try{ localStorage.setItem('fbl_calibdata', JSON.stringify(calib.data)); }catch(e){} }
 function loadCalibData(){ try{ const d=JSON.parse(localStorage.getItem('fbl_calibdata')||'null'); if(d)calib.data=d; }catch(e){} }
+// пересчитать пороги из уже записанных данных по НОВОЙ формуле (без перезаписи движений)
+function applyCalibFromData(){
+  loadCalibData();
+  const t=computeThresholds(calib.data);
+  if(t){ let prev={}; try{prev=JSON.parse(localStorage.getItem('fbl_calib')||'{}');}catch(e){}
+    localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
+    localStorage.setItem('fbl_calib',JSON.stringify({zones:t.zones,kickGyro:t.kickGyro,ts:prev.ts||Date.now()})); }
+}
 function renderCalibSummary(D, saved){
   const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null, max=a=>a&&a.length?Math.max(...a):null;
   const rows=CALIB_LABELS.map(([k,n])=>{
@@ -346,7 +349,8 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v0.8';
+const APP_VERSION='v0.9';
 if($('ver')) $('ver').textContent=APP_VERSION;
+applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
