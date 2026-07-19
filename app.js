@@ -261,7 +261,7 @@ function updateCalibRow(label,done){
 function showSavedCalib(){
   let s=null; try{ s=JSON.parse(localStorage.getItem('fbl_calib')||'null'); }catch(e){}
   if(s&&s.zones){ const d=new Date(s.ts);
-    $('calibResult').innerHTML=`✅ <b>Сохранено</b> ${d.toLocaleString('ru-RU')} · удар&gt;${Math.round(s.kickGyro||0)}°/с`;
+    $('calibResult').innerHTML=`✅ <b>Сохранено</b> ${d.toLocaleString('ru-RU')} · удар&gt;${s.kickAcc||'—'}g`;
     renderCalibSummary(calib.data, s);
   } else { $('calibResult').innerHTML='<span class="muted">поделай движения и нажми «Рассчитать»</span>'; }
 }
@@ -273,16 +273,16 @@ function computeThresholds(D){
   const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act);
   if(run==null&&walk==null) return null;
   const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: (run!=null? run*1.5 : 0.9) };
-  // порог удара — ВЫШЕ самого быстрого бега (бег+спринт трактуем как «быстрый бег»)
-  const fastMax = Math.max(maxA(D.RUN&&D.RUN.gyro)||0, maxA(D.SPRINT&&D.SPRINT.gyro)||0);
-  const kickGyro = fastMax>0 ? Math.round(fastMax*1.1) : 1200;
-  return {zones, kickGyro, fastMax};
+  // порог удара — по ПИКУ УСКОРЕНИЯ (касание мяча) выше бегового пика
+  const fastAcc = Math.max(maxA(D.RUN&&D.RUN.acc)||0, maxA(D.SPRINT&&D.SPRINT.acc)||0);
+  const kickAcc = fastAcc>0 ? +(Math.max(fastAcc*1.1, fastAcc+1.5)).toFixed(1) : 6;
+  return {zones, kickAcc, fastAcc};
 }
 function calibCalc(){
   if(calib.recording) calibStop();
   const t=computeThresholds(calib.data);
   if(!t){ $('calibResult').innerHTML='<span style="color:var(--sprint)">запиши хотя бы Ходьбу и Бег</span>'; return; }
-  const saved={zones:t.zones, kickGyro:t.kickGyro, ts:Date.now()};
+  const saved={zones:t.zones, kickAcc:t.kickAcc, ts:Date.now()};
   localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
   saveCalibData();
@@ -298,7 +298,7 @@ function applyCalibFromData(){
   const t=computeThresholds(calib.data);
   if(t){ let prev={}; try{prev=JSON.parse(localStorage.getItem('fbl_calib')||'{}');}catch(e){}
     localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
-    localStorage.setItem('fbl_calib',JSON.stringify({zones:t.zones,kickGyro:t.kickGyro,ts:prev.ts||Date.now()})); }
+    localStorage.setItem('fbl_calib',JSON.stringify({zones:t.zones,kickAcc:t.kickAcc,ts:prev.ts||Date.now()})); }
 }
 function renderCalibSummary(D, saved){
   const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null, max=a=>a&&a.length?Math.max(...a):null;
@@ -312,7 +312,7 @@ function renderCalibSummary(D, saved){
       ${rows}</table></div>
     <div style="margin-top:12px;font-size:14px"><b>Пороги (применены):</b><br>
       зоны: покой&lt;${saved.zones.idle.toFixed(3)} · ходьба&lt;${saved.zones.walk.toFixed(3)} · бег&lt;${saved.zones.run.toFixed(3)}<br>
-      удар: гиро&gt;${saved.kickGyro}°/с</div>
+      удар: ускорение&gt;${saved.kickAcc}g</div>
     <button class="big ghost" style="margin-top:14px" onclick="calibReset()">↻ Начать калибровку заново</button>`;
   $('calibSummaryCard').style.display='block';
 }
@@ -349,7 +349,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v0.9';
+const APP_VERSION='v1.0';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
