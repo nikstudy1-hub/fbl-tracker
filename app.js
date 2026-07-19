@@ -289,10 +289,14 @@ function computeThresholds(D){
   const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act);
   if(run==null&&walk==null) return null;
   const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: (run!=null? run*1.5 : 0.9) };
-  // порог удара — по ПИКУ УСКОРЕНИЯ (касание мяча) выше бегового пика
-  const fastAcc = Math.max(maxA(D.RUN&&D.RUN.acc)||0, maxA(D.SPRINT&&D.SPRINT.acc)||0);
-  const kickAcc = fastAcc>0 ? +(Math.max(fastAcc*1.1, fastAcc+1.5)).toFixed(1) : 6;
-  return {zones, kickAcc, fastAcc};
+  // порог удара — по ПИКУ УСКОРЕНИЯ (касание мяча). Спринт НЕ учитываем (он убран).
+  const runAccMax  = maxA(D.RUN&&D.RUN.acc)||0;
+  const kickAccMax = maxA(D.KICK&&D.KICK.acc)||0;
+  let kickAcc;
+  if(kickAccMax>runAccMax && runAccMax>0){ kickAcc = +(((runAccMax+kickAccMax)/2)).toFixed(1); } // между бегом и ударом
+  else if(runAccMax>0){ kickAcc = +(runAccMax*1.25).toFixed(1); }
+  else { kickAcc = 6; }
+  return {zones, kickAcc, runAccMax, kickAccMax};
 }
 function calibCalc(){
   if(calib.recording) calibStop();
@@ -365,7 +369,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.1';
+const APP_VERSION='v1.2';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
