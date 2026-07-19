@@ -107,6 +107,19 @@
     </div>
   </section>
 
+  <!-- ===== КАЛИБРОВКА ===== -->
+  <section id="tab-calib">
+    <div class="card">
+      <h2>Калибровка</h2>
+      <p class="muted">Надень датчик на ногу. Выбери движение, поделай его 6–8 раз, нажми «Пауза». Пройди по всем — приложение подстроит пороги под тебя.</p>
+      <div id="calibLabels" class="grid2" style="margin-top:12px"></div>
+      <div class="muted" id="calibStatus" style="margin-top:12px">подключи датчик и выбери движение</div>
+      <div id="calibStats" style="margin-top:10px"></div>
+      <button class="big" id="calibCalc" style="margin-top:14px">Рассчитать и сохранить пороги</button>
+      <div class="muted" id="calibResult" style="margin-top:10px"></div>
+    </div>
+  </section>
+
   <!-- ===== ИСТОРИЯ ===== -->
   <section id="tab-history">
     <div class="card"><h2>История сессий</h2><div id="histList"><div class="muted">пока нет записанных сессий</div></div></div>
@@ -136,6 +149,7 @@
 <nav class="nav">
   <a data-tab="device" class="act"><span class="i">📡</span>Датчик</a>
   <a data-tab="session"><span class="i">⏺</span>Сессия</a>
+  <a data-tab="calib"><span class="i">🎯</span>Калибр.</a>
   <a data-tab="history"><span class="i">📊</span>История</a>
   <a data-tab="profile"><span class="i">👤</span>Профиль</a>
 </nav>

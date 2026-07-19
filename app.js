@@ -79,14 +79,16 @@ function recCount(type){
 // ---- сырые данные (бинарь) ----
 function onData(dv){
   if(dv.getUint8(0)!==0x52) return;            // не 'R' (напр. файл-синк) — игнор
-  if(!rec) return;
   const n=Math.floor((dv.byteLength-3)/12);
   for(let i=0;i<n;i++){
     const o=3+i*12;
-    rec.raw.ax.push(dv.getInt16(o,true)/1000);   rec.raw.ay.push(dv.getInt16(o+2,true)/1000); rec.raw.az.push(dv.getInt16(o+4,true)/1000);
-    rec.raw.gx.push(dv.getInt16(o+6,true)/10);   rec.raw.gy.push(dv.getInt16(o+8,true)/10);   rec.raw.gz.push(dv.getInt16(o+10,true)/10);
+    const ax=dv.getInt16(o,true)/1000, ay=dv.getInt16(o+2,true)/1000, az=dv.getInt16(o+4,true)/1000;
+    const gx=dv.getInt16(o+6,true)/10,  gy=dv.getInt16(o+8,true)/10,  gz=dv.getInt16(o+10,true)/10;
+    if(rec){ rec.raw.ax.push(ax);rec.raw.ay.push(ay);rec.raw.az.push(az);rec.raw.gx.push(gx);rec.raw.gy.push(gy);rec.raw.gz.push(gz); }
+    if(calib.on && calib.label){ calibSample(ax,ay,az,gx,gy,gz); }
   }
-  rec.samples+=n;
+  if(rec) rec.samples+=n;
+  if(calib.on && calib.label){ calib.count+=n; updateCalibUI(); }
 }
 
 // ================= ЗАПИСЬ =================
@@ -163,6 +165,11 @@ async function openAnalytics(id){
       <div class="tile"><div class="n">${m.cadence}</div><div class="l">каденс /мин</div></div>
       <div class="tile"><div class="n">${m.bursts}</div><div class="l">рывки</div></div>
     </div>
+    <div class="grid3" style="margin-top:10px">
+      <div class="tile"><div class="n">${m.turns}</div><div class="l">повороты</div></div>
+      <div class="tile"><div class="n">${m.fatigue}%</div><div class="l">усталость</div></div>
+      <div class="tile"><div class="n">${m.sprints+m.bursts}</div><div class="l">выс. интенс.</div></div>
+    </div>
     <div class="card" style="margin-top:14px"><h3 style="margin-bottom:10px">Зоны интенсивности</h3>${svgDonut(m.zones)}</div>
     <div class="card"><h3 style="margin-bottom:10px">Динамика сессии</h3>${svgTimeline(m.timeline)}</div>
     <div class="card"><h3>Удары</h3>
@@ -201,6 +208,53 @@ async function exportCSV(id){
   const a=document.createElement('a'); a.href=url; a.download='session_'+id+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
+// ================= КАЛИБРОВКА =================
+const CALIB_LABELS=[['IDLE','🧍 Покой'],['WALK','🚶 Ходьба'],['RUN','🏃 Бег'],['SPRINT','⚡ Спринт'],['KICK','⚽ Удар'],['JUMP','🦘 Прыжок']];
+let calib={on:false,label:null,count:0,data:{}};
+
+function buildCalib(){
+  $('calibLabels').innerHTML=CALIB_LABELS.map(([k,n])=>
+    `<button class="ghost" id="cl_${k}" onclick="calibSelect('${k}')">${n}<div class="muted" id="cc_${k}">0</div></button>`).join('')+
+    `<button class="ghost" onclick="calibPause()">⏸ Пауза</button>`;
+}
+async function calibSelect(label){
+  if(!connected){ $('calibStatus').textContent='сначала подключи датчик (вкладка Датчик)'; return; }
+  if(rec){ $('calibStatus').textContent='останови запись сессии перед калибровкой'; return; }
+  if(!calib.on){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); calib.on=true; }catch(e){ $('calibStatus').textContent='ошибка старта потока'; return; } }
+  calib.label=label; if(!calib.data[label])calib.data[label]={act:[],gyro:[]};
+  updateCalibUI();
+}
+function calibSample(ax,ay,az,gx,gy,gz){
+  const d=calib.data[calib.label]; if(!d)return;
+  d.act.push(Math.abs(Math.hypot(ax,ay,az)-1));
+  d.gyro.push(Math.hypot(gx,gy,gz));
+}
+function calibPause(){ calib.label=null; updateCalibUI(); }
+function updateCalibUI(){
+  CALIB_LABELS.forEach(([k])=>{ const b=$('cl_'+k); if(b)b.style.borderColor=(calib.label===k)?'var(--accent)':'var(--line)';
+    const c=$('cc_'+k); if(c)c.textContent=(calib.data[k]?calib.data[k].act.length:0); });
+  const lbl=calib.label?(CALIB_LABELS.find(x=>x[0]===calib.label)||[])[1]:null;
+  $('calibStatus').innerHTML = calib.label? `● запись: <b style="color:#ff4d6d">${lbl}</b> — делай движение` : (calib.on?'⏸ пауза — выбери движение':'выбери движение');
+}
+async function calibCalc(){
+  const D=calib.data; const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  const pct=(a,p)=>{if(!a||!a.length)return null;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p/100*s.length))];};
+  const mid=(a,b)=>(a!=null&&b!=null)?(a+b)/2:null;
+  const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act), sprint=mean(D.SPRINT&&D.SPRINT.act);
+  if(idle==null&&walk==null&&run==null){ $('calibResult').textContent='мало данных — поделай хотя бы покой/ходьбу/бег'; return; }
+  const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: mid(run,sprint)??0.699 };
+  const kickG = pct(D.KICK&&D.KICK.gyro,80);
+  const saved={zones, kickGyro:kickG||null, ts:Date.now()};
+  localStorage.setItem('fbl_zones',JSON.stringify(zones));
+  localStorage.setItem('fbl_calib',JSON.stringify(saved));
+  // остановить поток
+  if(calib.on){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 0')); }catch(e){} calib.on=false; calib.label=null; }
+  $('calibResult').innerHTML=`✓ сохранено. Пороги активности: покой&lt;${zones.idle.toFixed(3)} · ходьба&lt;${zones.walk.toFixed(3)} · бег&lt;${zones.run.toFixed(3)}${kickG?` · удар&gt;${Math.round(kickG)}°/с`:''}<br>Замеры: покой ${fmt(idle)} · ходьба ${fmt(walk)} · бег ${fmt(run)} · спринт ${fmt(sprint)}`;
+  updateCalibUI();
+  function fmt(v){return v==null?'—':v.toFixed(3);}
+}
+$('calibCalc').onclick=calibCalc;
+
 // ================= ПРОФИЛЬ =================
 function loadProfile(){ try{return JSON.parse(localStorage.getItem('fbl_profile')||'{}');}catch(e){return {};} }
 function fillProfile(){ const p=loadProfile(); $('pName').value=p.name||''; $('pFoot').value=p.foot||'Правая'; $('pHeight').value=p.height||''; $('pFootLen').value=p.footLen||''; }
@@ -224,9 +278,12 @@ function mmss(s){ const m=Math.floor(s/60); return String(m).padStart(2,'0')+':'
 
 document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{e.preventDefault();showTab(a.dataset.tab);});
 function showTab(name){
+  // покидаем калибровку — остановить поток
+  if(name!=='calib' && calib.on && !rec){ if(ctrlCh)ctrlCh.writeValue(new TextEncoder().encode('REC 0')).catch(()=>{}); calib.on=false; calib.label=null; }
   document.querySelectorAll('section').forEach(s=>s.classList.toggle('act',s.id==='tab-'+name));
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('act',a.dataset.tab===name));
   if(name==='history')renderHistory();
+  if(name==='calib')buildCalib();
 }
 
 fillProfile(); renderHistory();

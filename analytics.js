@@ -2,14 +2,16 @@
    Сэмплы: массивы ax,ay,az (g), gx,gy,gz (dps), ~100 Гц.
    События: [{t, type, a, g, air, h}] (t — мс от старта сессии). */
 
-// пороги зон (откалибровано под лодыжку)
-const Z = { idle:0.086, walk:0.379, run:0.699 };
+// пороги зон — берём персональные (из калибровки) либо дефолт под лодыжку
+function getZ(){ const d={idle:0.086,walk:0.379,run:0.699};
+  try{ return Object.assign(d, JSON.parse(localStorage.getItem('fbl_zones')||'{}')); }catch(e){ return d; } }
 const RAW_HZ = 100;
 
 function analyze(session, profile){
   const s = session.raw || {ax:[],ay:[],az:[],gx:[],gy:[],gz:[]};
   const N = s.ax.length;
   const durS = session.durationMs/1000 || (N/RAW_HZ) || 1;
+  const Z = getZ();
 
   // модули
   const aMag = new Float32Array(N), gMag = new Float32Array(N), aDyn = new Float32Array(N);
@@ -45,6 +47,22 @@ function analyze(session, profile){
     if(aDyn[i]>1.2 && aDyn[i]>=aDyn[i-1] && aDyn[i]>aDyn[i+1] && (i-lastB)>Math.round(0.4*RAW_HZ)){ bursts++; lastB=i; }
   }
 
+  // ---- смена направления (пики yaw-скорости gz) ----
+  let turns=0, lastT=-999;
+  for(let i=1;i<N-1;i++){
+    const az2=Math.abs(s.gz[i]);
+    if(az2>200 && az2>=Math.abs(s.gz[i-1]) && az2>Math.abs(s.gz[i+1]) && (i-lastT)>Math.round(0.4*RAW_HZ)){ turns++; lastT=i; }
+  }
+
+  // ---- усталость: падение каденса (первая треть vs последняя) ----
+  let fatigue=0;
+  if(stepTimes.length>=6){
+    const third=durS/3;
+    const c1=stepTimes.filter(t=>t<third).length/third*60;
+    const c3=stepTimes.filter(t=>t>=2*third).length/third*60;
+    if(c1>10) fatigue=Math.max(0,Math.round((1-c3/c1)*100));
+  }
+
   // ---- события ----
   const ev = session.events||[];
   const kicks = ev.filter(e=>e.type==='KICK');
@@ -71,7 +89,7 @@ function analyze(session, profile){
   const gct = estimateGCT(aDyn, stepTimes);
 
   return {
-    durS, steps, cadence, bursts,
+    durS, steps, cadence, bursts, turns, fatigue,
     zones:zoneT, timeline,
     kicks:kicksAn.length, jumps:jumps.length, impacts:impacts.length, sprints,
     maxKickKmh:maxKick, maxJumpCm:maxJump, kicksAn, jumpsAn:jumps,
