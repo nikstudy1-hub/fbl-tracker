@@ -285,7 +285,8 @@ function calibCalc(){
   let kickGyro;
   if(kickTyp!=null && runHi!=null){ kickGyro = kickTyp>runHi*1.05 ? Math.round((runHi+kickTyp)/2) : Math.round(runHi*1.1); }
   else if(runHi!=null){ kickGyro = Math.round(runHi*1.15); }
-  else { kickGyro = 1300; }
+  else { kickGyro = 1400; }
+  kickGyro = Math.max(kickGyro, 1300);   // не ниже беговых пиков
   const saved={zones, kickGyro, ts:Date.now()};
   localStorage.setItem('fbl_zones',JSON.stringify(zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
@@ -345,7 +346,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v0.7';
+const APP_VERSION='v0.8';
 if($('ver')) $('ver').textContent=APP_VERSION;
 fillProfile(); renderHistory();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});

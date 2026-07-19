@@ -7,8 +7,8 @@ function loadThresholds(){
   const z=(c.zones)||{idle:0.086,walk:0.379,run:0.699};
   return {
     idle:z.idle, walk:z.walk, run:z.run,
-    // порог удара не может быть ниже беговых пиков (~1200°/с на лодыжке) — страховка от старой заниженной калибровки
-    kickGyro: Math.max(c.kickGyro || 1300, 1200),
+    // порог удара не может быть ниже беговых пиков (~1300°/с на лодыжке) — страховка от заниженной калибровки
+    kickGyro: Math.max(c.kickGyro || 1400, 1300),
     freefall:0.35, freefallMin:60, landing:2.5,
     capMs:80, coolMs:350, winMs:700, idleGyro:30, dt:10
   };
