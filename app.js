@@ -333,5 +333,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
+const APP_VERSION='v0.6';
+if($('ver')) $('ver').textContent=APP_VERSION;
 fillProfile(); renderHistory();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
