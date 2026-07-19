@@ -8,8 +8,8 @@ const EV = {KICK:{e:'⚽',n:'УДАР',c:'#ff7a3c'},JUMP:{e:'🦘',n:'ПРЫЖО
   IDLE:{e:'🧍',n:'ПОКОЙ',c:'#7a86a1'},WALK:{e:'🚶',n:'ХОДЬБА',c:'#2dd4bf'},RUN:{e:'🏃',n:'БЕГ',c:'#37d67a'},SPRINT:{e:'⚡',n:'СПРИНТ',c:'#ffd23f'}};
 
 const $=id=>document.getElementById(id);
-let dev=null, ctrlCh=null, connected=false;
-let liveState=null, prevState=null;
+let dev=null, ctrlCh=null, connected=false, streaming=false, detector=null;
+let prevState=null;
 let dCounts={KICK:0,JUMP:0,SPRINT:0};
 
 // запись
@@ -36,40 +36,44 @@ async function connect(){
     ctrlCh=await svc.getCharacteristic(CTRL);
     connected=true; setConn('подключено',true);
     $('connectBtn').textContent='Подключено ✓'; $('recBtn').disabled=false;
+    // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
+    detector=new Detector({onEvent:onDetEvent, onState:onDetState});
+    try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
     // прочитать статус SD (отправлен при подключении)
     const rd=async()=>{try{onEvent(new TextDecoder().decode(await evc.readValue()).trim());}catch(e){}};
     rd(); setTimeout(rd,400); setTimeout(rd,1200);
   }catch(e){ setConn('ошибка',false); console.error(e); }
 }
 function onDisc(){
-  connected=false; setConn('отключено',false);
+  connected=false; streaming=false; detector=null;
+  setConn('отключено',false);
   $('connectBtn').textContent='Переподключить'; $('recBtn').disabled=true;
   if(rec) stopRec(true);
 }
 
-// ---- события (текст) ----
+// ---- текстовые сообщения датчика: только статус SD (движения ловит телефон) ----
 function onEvent(msg){
-  const p=msg.split(/\s+/); const type=p[0];
-  const a=num(p,'a'), g=num(p,'g'), air=num(p,'air'), h=num(p,'h');
-
-  if(type==='SD'){ $('sdPill').textContent='💾 '+msg; return; }
-  if(type==='REC'){ return; }
-  const info=EV[type]; if(!info) return;
-
-  const isState=['IDLE','WALK','RUN','SPRINT'].includes(type);
-  if(isState){
-    $('heroE').textContent=info.e; $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg;
-    if(type==='SPRINT'&&prevState!=='SPRINT'){ dCounts.SPRINT++; if(rec)recCount('SPRINT'); }
-    prevState=type;
-  }else{
-    $('heroE').textContent=info.e; $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg;
-    if(dCounts[type]!==undefined){ dCounts[type]++; if(rec)recCount(type); }
-    addLive(info,msg);
-  }
-  $('dKick').textContent=dCounts.KICK; $('dJump').textContent=dCounts.JUMP; $('dSprint').textContent=dCounts.SPRINT;
-
-  if(rec){ rec.events.push({t:Date.now()-rec.startMs,type,a,g,air,h}); }
+  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ $('sdPill').textContent='💾 '+msg; }
 }
+// ---- события от детектора на телефоне (по личным порогам) ----
+function onDetEvent(type,data){
+  const info=EV[type]; if(!info) return;
+  const msg = (type==='JUMP') ? `JUMP air=${Math.round(data.air||0)}ms h=${Math.round(data.h||0)}см`
+            : `${type} a=${(data.a||0).toFixed(1)}g g=${Math.round(data.g||0)}`;
+  hero(info,msg);
+  if(dCounts[type]!==undefined){ dCounts[type]++; if(rec)recCount(type); }
+  refreshCounts(); addLive(info,msg);
+  if(rec) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g,air:data.air,h:data.h});
+}
+function onDetState(state,act){
+  const info=EV[state]; if(!info) return;
+  hero(info,`${state} a=${act.toFixed(2)}g`);
+  if(state==='SPRINT'&&prevState!=='SPRINT'){ dCounts.SPRINT++; if(rec)recCount('SPRINT'); refreshCounts(); }
+  prevState=state;
+  if(rec) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
+}
+function hero(info,msg){ $('heroE').textContent=info.e; $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg; }
+function refreshCounts(){ $('dKick').textContent=dCounts.KICK; $('dJump').textContent=dCounts.JUMP; $('dSprint').textContent=dCounts.SPRINT; }
 function recCount(type){
   if(type==='KICK')$('sKick').textContent=+($('sKick').textContent)+1;
   if(type==='JUMP')$('sJump').textContent=+($('sJump').textContent)+1;
@@ -84,11 +88,12 @@ function onData(dv){
     const o=3+i*12;
     const ax=dv.getInt16(o,true)/1000, ay=dv.getInt16(o+2,true)/1000, az=dv.getInt16(o+4,true)/1000;
     const gx=dv.getInt16(o+6,true)/10,  gy=dv.getInt16(o+8,true)/10,  gz=dv.getInt16(o+10,true)/10;
+    if(detector) detector.push(ax,ay,az,gx,gy,gz);     // распознавание по личным порогам
     if(rec){ rec.raw.ax.push(ax);rec.raw.ay.push(ay);rec.raw.az.push(az);rec.raw.gx.push(gx);rec.raw.gy.push(gy);rec.raw.gz.push(gz); }
-    if(calib.on && calib.label){ calibSample(ax,ay,az,gx,gy,gz); }
+    if(calib.label){ calibSample(ax,ay,az,gx,gy,gz); }
   }
   if(rec) rec.samples+=n;
-  if(calib.on && calib.label){ calib.count+=n; updateCalibUI(); }
+  if(calib.label){ calib.count+=n; updateCalibUI(); }
 }
 
 // ================= ЗАПИСЬ =================
@@ -98,7 +103,7 @@ async function startRec(){
   rec={startMs:Date.now(), events:[], raw:{ax:[],ay:[],az:[],gx:[],gy:[],gz:[]}, samples:0};
   dCounts={KICK:0,JUMP:0,SPRINT:0};
   $('sKick').textContent='0';$('sJump').textContent='0';$('sSprint').textContent='0';
-  try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); }catch(e){ alert('не удалось начать: '+e.message); rec=null; return; }
+  // поток уже идёт (включён при подключении) — просто начинаем копить
   try{ wakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
   $('recBtn').textContent='■ Остановить'; $('recState').textContent='● идёт запись'; $('recState').style.color='#ff4d6d';
   recTimer=setInterval(()=>{ const s=Math.floor((Date.now()-rec.startMs)/1000); $('recTime').textContent=mmss(s); },500);
@@ -108,7 +113,7 @@ async function startRec(){
 async function stopRec(silent){
   const r=rec; rec=null;
   clearInterval(recTimer); clearInterval(healthTimer);
-  try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 0')); }catch(e){}
+  // поток НЕ выключаем — он нужен для live-детекции; просто перестаём копить
   if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; }
   $('recBtn').textContent='● Начать запись'; $('recState').textContent='не записывается'; $('recState').style.color='';
   $('recTime').textContent='00:00'; $('recHealth').innerHTML='поток: — Гц · сэмплов: 0';
@@ -210,7 +215,7 @@ async function exportCSV(id){
 
 // ================= КАЛИБРОВКА =================
 const CALIB_LABELS=[['IDLE','🧍 Покой'],['WALK','🚶 Ходьба'],['RUN','🏃 Бег'],['SPRINT','⚡ Спринт'],['KICK','⚽ Удар'],['JUMP','🦘 Прыжок']];
-let calib={on:false,label:null,count:0,data:{}};
+let calib={label:null,count:0,data:{}};
 
 function buildCalib(){
   $('calibLabels').innerHTML=CALIB_LABELS.map(([k,n])=>
@@ -223,22 +228,24 @@ function showSavedCalib(){
   if(s&&s.zones){
     const d=new Date(s.ts);
     $('calibResult').innerHTML=`✅ <b>Сохранённая калибровка</b> · ${d.toLocaleString('ru-RU')}<br>
-      Пороги активности: покой&lt;${s.zones.idle.toFixed(3)} · ходьба&lt;${s.zones.walk.toFixed(3)} · бег&lt;${s.zones.run.toFixed(3)}${s.kickGyro?` · удар&gt;${Math.round(s.kickGyro)}°/с`:''}<br>
-      <span class="muted">эти пороги уже применяются в аналитике сессий</span>`;
+      Зоны: покой&lt;${s.zones.idle.toFixed(3)} · ходьба&lt;${s.zones.walk.toFixed(3)} · бег&lt;${s.zones.run.toFixed(3)}<br>
+      ${s.kickGyro?`Удар: гиро&gt;${Math.round(s.kickGyro)}°/с · `:''}${s.impactAcc?`Столкновение: ускор&gt;${s.impactAcc}g`:''}<br>
+      <span class="muted">применяется на главном экране и в аналитике</span>`;
   } else {
     $('calibResult').innerHTML='<span class="muted">калибровка ещё не сохранена — поделай движения и нажми «Рассчитать»</span>';
   }
 }
-async function calibSelect(label){
+function calibSelect(label){
   if(!connected){ $('calibStatus').textContent='сначала подключи датчик (вкладка Датчик)'; return; }
   if(rec){ $('calibStatus').textContent='останови запись сессии перед калибровкой'; return; }
-  if(!calib.on){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); calib.on=true; }catch(e){ $('calibStatus').textContent='ошибка старта потока'; return; } }
-  calib.label=label; if(!calib.data[label])calib.data[label]={act:[],gyro:[]};
+  calib.label=label; if(!calib.data[label])calib.data[label]={act:[],gyro:[],acc:[]};
   updateCalibUI();
 }
 function calibSample(ax,ay,az,gx,gy,gz){
   const d=calib.data[calib.label]; if(!d)return;
-  d.act.push(Math.abs(Math.hypot(ax,ay,az)-1));
+  const aMag=Math.hypot(ax,ay,az);
+  d.act.push(Math.abs(aMag-1));
+  d.acc.push(aMag);
   d.gyro.push(Math.hypot(gx,gy,gz));
 }
 function calibPause(){ calib.label=null; updateCalibUI(); }
@@ -246,24 +253,30 @@ function updateCalibUI(){
   CALIB_LABELS.forEach(([k])=>{ const b=$('cl_'+k); if(b)b.style.borderColor=(calib.label===k)?'var(--accent)':'var(--line)';
     const c=$('cc_'+k); if(c)c.textContent=(calib.data[k]?calib.data[k].act.length:0); });
   const lbl=calib.label?(CALIB_LABELS.find(x=>x[0]===calib.label)||[])[1]:null;
-  $('calibStatus').innerHTML = calib.label? `● запись: <b style="color:#ff4d6d">${lbl}</b> — делай движение` : (calib.on?'⏸ пауза — выбери движение':'выбери движение');
+  $('calibStatus').innerHTML = calib.label? `● запись: <b style="color:#ff4d6d">${lbl}</b> — делай движение` : (connected?'выбери движение':'подключи датчик');
 }
-async function calibCalc(){
+function calibCalc(){
   const D=calib.data; const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
   const pct=(a,p)=>{if(!a||!a.length)return null;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p/100*s.length))];};
   const mid=(a,b)=>(a!=null&&b!=null)?(a+b)/2:null;
+  const cat=(...as)=>as.filter(Boolean).reduce((r,a)=>r.concat(a),[]);
   const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act), sprint=mean(D.SPRINT&&D.SPRINT.act);
   if(idle==null&&walk==null&&run==null){ $('calibResult').textContent='мало данных — поделай хотя бы покой/ходьбу/бег'; return; }
   const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: mid(run,sprint)??0.699 };
-  const kickG = pct(D.KICK&&D.KICK.gyro,80);
-  const saved={zones, kickGyro:kickG||null, ts:Date.now()};
+  // пороги удара/столкновения — ВЫШЕ пиков бега/спринта (иначе бег ложно триггерит)
+  const runAcc = pct(cat(D.RUN&&D.RUN.acc, D.SPRINT&&D.SPRINT.acc), 95);
+  const runGyro= pct(cat(D.RUN&&D.RUN.gyro, D.SPRINT&&D.SPRINT.gyro), 95);
+  const impactAcc = runAcc? Math.max(4, +(runAcc*1.15).toFixed(1)) : 5.0;
+  const kickGyro  = runGyro? Math.max(600, Math.round(runGyro*1.15)) : 900;
+  const saved={zones, kickGyro, impactAcc, ts:Date.now()};
   localStorage.setItem('fbl_zones',JSON.stringify(zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
-  // остановить поток
-  if(calib.on){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 0')); }catch(e){} calib.on=false; calib.label=null; }
-  $('calibResult').innerHTML=`✓ сохранено. Пороги активности: покой&lt;${zones.idle.toFixed(3)} · ходьба&lt;${zones.walk.toFixed(3)} · бег&lt;${zones.run.toFixed(3)}${kickG?` · удар&gt;${Math.round(kickG)}°/с`:''}<br>Замеры: покой ${fmt(idle)} · ходьба ${fmt(walk)} · бег ${fmt(run)} · спринт ${fmt(sprint)}`;
+  if(detector) detector.reloadThresholds();   // применяем сразу к live-детекции
+  $('calibResult').innerHTML=`✓ сохранено и применено.<br>
+    Зоны: покой&lt;${zones.idle.toFixed(3)} · ходьба&lt;${zones.walk.toFixed(3)} · бег&lt;${zones.run.toFixed(3)}<br>
+    Удар: гиро&gt;${kickGyro}°/с · Столкновение: ускор&gt;${impactAcc}g<br>
+    <span class="muted">замеры бега: пик ускор ${runAcc?runAcc.toFixed(1):'—'}g · пик гиро ${runGyro?Math.round(runGyro):'—'}°/с</span>`;
   updateCalibUI();
-  function fmt(v){return v==null?'—':v.toFixed(3);}
 }
 $('calibCalc').onclick=calibCalc;
 
@@ -290,8 +303,7 @@ function mmss(s){ const m=Math.floor(s/60); return String(m).padStart(2,'0')+':'
 
 document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{e.preventDefault();showTab(a.dataset.tab);});
 function showTab(name){
-  // покидаем калибровку — остановить поток
-  if(name!=='calib' && calib.on && !rec){ if(ctrlCh)ctrlCh.writeValue(new TextEncoder().encode('REC 0')).catch(()=>{}); calib.on=false; calib.label=null; }
+  if(name!=='calib') calib.label=null;   // уходя с калибровки — снять активную метку
   document.querySelectorAll('section').forEach(s=>s.classList.toggle('act',s.id==='tab-'+name));
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('act',a.dataset.tab===name));
   if(name==='history')renderHistory();
