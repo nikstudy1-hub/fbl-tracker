@@ -216,6 +216,18 @@ function buildCalib(){
   $('calibLabels').innerHTML=CALIB_LABELS.map(([k,n])=>
     `<button class="ghost" id="cl_${k}" onclick="calibSelect('${k}')">${n}<div class="muted" id="cc_${k}">0</div></button>`).join('')+
     `<button class="ghost" onclick="calibPause()">⏸ Пауза</button>`;
+  showSavedCalib();
+}
+function showSavedCalib(){
+  let s=null; try{ s=JSON.parse(localStorage.getItem('fbl_calib')||'null'); }catch(e){}
+  if(s&&s.zones){
+    const d=new Date(s.ts);
+    $('calibResult').innerHTML=`✅ <b>Сохранённая калибровка</b> · ${d.toLocaleString('ru-RU')}<br>
+      Пороги активности: покой&lt;${s.zones.idle.toFixed(3)} · ходьба&lt;${s.zones.walk.toFixed(3)} · бег&lt;${s.zones.run.toFixed(3)}${s.kickGyro?` · удар&gt;${Math.round(s.kickGyro)}°/с`:''}<br>
+      <span class="muted">эти пороги уже применяются в аналитике сессий</span>`;
+  } else {
+    $('calibResult').innerHTML='<span class="muted">калибровка ещё не сохранена — поделай движения и нажми «Рассчитать»</span>';
+  }
 }
 async function calibSelect(label){
   if(!connected){ $('calibStatus').textContent='сначала подключи датчик (вкладка Датчик)'; return; }
