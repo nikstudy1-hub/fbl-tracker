@@ -4,7 +4,7 @@ const EVENT  ='a0f10001-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const CTRL   ='a0f10002-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const DATA   ='a0f10003-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 
-const EV = {KICK:{e:'⚽',n:'УДАР',c:'#ff7a3c'},JUMP:{e:'🦘',n:'ПРЫЖОК',c:'#b06bff'},IMPACT:{e:'💥',n:'СТОЛКНОВЕНИЕ',c:'#ff4d6d'},
+const EV = {KICK:{e:'⚽',n:'УДАР',c:'#ff7a3c'},JUMP:{e:'🦘',n:'ПРЫЖОК',c:'#b06bff'},
   IDLE:{e:'🧍',n:'ПОКОЙ',c:'#7a86a1'},WALK:{e:'🚶',n:'ХОДЬБА',c:'#2dd4bf'},RUN:{e:'🏃',n:'БЕГ',c:'#37d67a'},SPRINT:{e:'⚡',n:'СПРИНТ',c:'#ffd23f'}};
 
 const $=id=>document.getElementById(id);
@@ -217,11 +217,16 @@ const CALIB_LABELS=[['IDLE','🧍 Покой'],['WALK','🚶 Ходьба'],['RU
 let calib={recording:null, startMs:0, timer:null, data:{}};
 
 function buildCalib(){
-  $('calibList').innerHTML=CALIB_LABELS.map(([k,n])=>`
+  loadCalibData();
+  $('calibList').innerHTML=CALIB_LABELS.map(([k,n])=>{
+    const has=calib.data[k]&&calib.data[k].act&&calib.data[k].act.length;
+    return `
     <div class="tile" style="text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px">
       <div style="flex:1"><b>${n}</b><div class="muted" id="cr_${k}" style="font-size:12px;margin-top:2px">не записано</div></div>
-      <button class="ghost" id="cb_${k}" onclick="calibToggle('${k}')" style="padding:9px 14px">● Записать</button>
-    </div>`).join('');
+      <button class="ghost" id="cb_${k}" onclick="calibToggle('${k}')" style="padding:9px 14px">${has?'↻ Переписать':'● Записать'}</button>
+    </div>`;
+  }).join('');
+  CALIB_LABELS.forEach(([k])=>{ if(calib.data[k]&&calib.data[k].act&&calib.data[k].act.length) updateCalibRow(k,true); });
   showSavedCalib();
 }
 function calibToggle(label){
@@ -240,6 +245,7 @@ function calibStop(){
   clearInterval(calib.timer); calib.timer=null; calib.recording=null;
   const b=$('cb_'+label); if(b){ b.textContent='↻ Переписать'; b.style.background=''; b.style.color=''; }
   updateCalibRow(label,true);
+  saveCalibData();   // сразу сохраняем — данные не потеряются
 }
 function calibSample(ax,ay,az,gx,gy,gz){
   const d=calib.data[calib.recording]; if(!d)return;
@@ -259,7 +265,7 @@ function updateCalibRow(label,done){
 function showSavedCalib(){
   let s=null; try{ s=JSON.parse(localStorage.getItem('fbl_calib')||'null'); }catch(e){}
   if(s&&s.zones){ const d=new Date(s.ts);
-    $('calibResult').innerHTML=`✅ <b>Сохранено</b> ${d.toLocaleString('ru-RU')} · удар&gt;${Math.round(s.kickGyro||0)}°/с · столкн&gt;${s.impactAcc||'—'}g`;
+    $('calibResult').innerHTML=`✅ <b>Сохранено</b> ${d.toLocaleString('ru-RU')} · удар&gt;${Math.round(s.kickGyro||0)}°/с`;
     renderCalibSummary(calib.data, s);
   } else { $('calibResult').innerHTML='<span class="muted">поделай движения и нажми «Рассчитать»</span>'; }
 }
@@ -273,17 +279,23 @@ function calibCalc(){
   const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act), sprint=mean(D.SPRINT&&D.SPRINT.act);
   if(run==null&&walk==null){ $('calibResult').innerHTML='<span style="color:var(--sprint)">запиши хотя бы Ходьбу и Бег</span>'; return; }
   const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: mid(run,sprint)??0.699 };
-  const runAcc = pct(cat(D.RUN&&D.RUN.acc, D.SPRINT&&D.SPRINT.acc), 95);
-  const runGyro= pct(cat(D.RUN&&D.RUN.gyro, D.SPRINT&&D.SPRINT.gyro), 95);
-  const impactAcc = runAcc? Math.max(4, +(runAcc*1.2).toFixed(1)) : 5.0;
-  const kickGyro  = runGyro? Math.max(600, Math.round(runGyro*1.2)) : 900;
-  const saved={zones, kickGyro, impactAcc, ts:Date.now()};
+  // порог удара — по ПИКАМ вращения: между «беговым потолком» и типичным ударом
+  const runHi  = pct(cat(D.RUN&&D.RUN.gyro, D.SPRINT&&D.SPRINT.gyro), 98);
+  const kickTyp= pct(D.KICK&&D.KICK.gyro, 50);
+  let kickGyro;
+  if(kickTyp!=null && runHi!=null){ kickGyro = kickTyp>runHi*1.05 ? Math.round((runHi+kickTyp)/2) : Math.round(runHi*1.1); }
+  else if(runHi!=null){ kickGyro = Math.round(runHi*1.15); }
+  else { kickGyro = 1300; }
+  const saved={zones, kickGyro, ts:Date.now()};
   localStorage.setItem('fbl_zones',JSON.stringify(zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
+  saveCalibData();
   if(detector) detector.reloadThresholds();
-  $('calibResult').innerHTML='<span style="color:var(--run)">✓ Сохранено и применено — к главному экрану и аналитике.</span>';
+  $('calibResult').innerHTML='<span style="color:var(--run)">✓ Сохранено навсегда и применено — к главному экрану и аналитике.</span>';
   renderCalibSummary(D, saved);
 }
+function saveCalibData(){ try{ localStorage.setItem('fbl_calibdata', JSON.stringify(calib.data)); }catch(e){} }
+function loadCalibData(){ try{ const d=JSON.parse(localStorage.getItem('fbl_calibdata')||'null'); if(d)calib.data=d; }catch(e){} }
 function renderCalibSummary(D, saved){
   const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null, max=a=>a&&a.length?Math.max(...a):null;
   const rows=CALIB_LABELS.map(([k,n])=>{
@@ -296,7 +308,7 @@ function renderCalibSummary(D, saved){
       ${rows}</table></div>
     <div style="margin-top:12px;font-size:14px"><b>Пороги (применены):</b><br>
       зоны: покой&lt;${saved.zones.idle.toFixed(3)} · ходьба&lt;${saved.zones.walk.toFixed(3)} · бег&lt;${saved.zones.run.toFixed(3)}<br>
-      удар: гиро&gt;${saved.kickGyro}°/с · столкновение: ускор&gt;${saved.impactAcc}g</div>
+      удар: гиро&gt;${saved.kickGyro}°/с</div>
     <button class="big ghost" style="margin-top:14px" onclick="calibReset()">↻ Начать калибровку заново</button>`;
   $('calibSummaryCard').style.display='block';
 }
@@ -333,7 +345,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v0.6';
+const APP_VERSION='v0.7';
 if($('ver')) $('ver').textContent=APP_VERSION;
 fillProfile(); renderHistory();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
