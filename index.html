@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -57,105 +57,113 @@
 </head>
 <body>
 <div class="topbar">
-  <div class="brand">⚽ FBL<b>Tracker</b> <span id="ver" style="font-size:11px;color:var(--dim);font-weight:400"></span></div>
-  <div class="conn"><span class="dot" id="dot"></span><span id="connTxt">не подключено</span></div>
+  <div class="brand">FBL<b>Tracker</b> <span id="ver" style="font-size:11px;color:var(--dim);font-weight:400"></span></div>
+  <div class="conn"><span class="dot" id="dot"></span><span id="connTxt">not connected</span></div>
 </div>
 
 <div class="wrap">
-  <!-- ===== УСТРОЙСТВО ===== -->
+  <!-- ===== DEVICE ===== -->
   <section id="tab-device" class="act">
     <div class="hero">
       <div class="e" id="heroE">🎯</div>
-      <div class="nm" id="heroN">ГОТОВ</div>
-      <div class="d" id="heroD">подключи датчик FBL-Sensor-01</div>
+      <div class="nm" id="heroN">READY</div>
+      <div class="d" id="heroD">connect sensor FBL-Sensor-01</div>
       <div style="margin-top:10px"><span class="pill" id="sdPill">💾 SD: —</span></div>
     </div>
-    <button class="big" id="connectBtn">Подключить датчик</button>
+    <button class="big" id="connectBtn">Connect sensor</button>
     <div class="grid2" style="margin-top:14px">
-      <div class="tile"><div class="n" id="dKick" style="color:var(--kick)">0</div><div class="l">⚽ удары</div></div>
-      <div class="tile"><div class="n" id="dJump" style="color:var(--jump)">0</div><div class="l">🦘 прыжки</div></div>
+      <div class="tile"><div class="n" id="dKick" style="color:var(--kick)">0</div><div class="l">⚽ kicks</div></div>
+      <div class="tile"><div class="n" id="dJump" style="color:var(--jump)">0</div><div class="l">🦘 jumps</div></div>
     </div>
     <div class="card" style="margin-top:14px;padding:12px 14px">
-      <div style="font-size:12px;color:var(--dim);margin-bottom:4px">отладка (живые данные)</div>
-      <div id="dbg" style="font-family:monospace;font-size:13px;line-height:1.6">нет данных — подключи датчик</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:4px">debug (live data)</div>
+      <div id="dbg" style="font-family:monospace;font-size:13px;line-height:1.6">no data — connect sensor</div>
     </div>
     <div class="card" style="margin-top:14px">
-      <h3 style="margin-bottom:8px">Живой поток</h3>
-      <div class="feed" id="liveFeed"><div class="muted">события появятся после подключения…</div></div>
+      <h3 style="margin-bottom:8px">Live feed</h3>
+      <div class="feed" id="liveFeed"><div class="muted">events will appear after connecting…</div></div>
     </div>
   </section>
 
-  <!-- ===== СЕССИЯ ===== -->
+  <!-- ===== SESSION ===== -->
   <section id="tab-session">
     <div class="card">
-      <h2>Запись сессии</h2>
-      <p class="muted">Датчик стримит сырые данные на телефон. Держи приложение открытым во время тренировки.</p>
+      <h2>Session recording</h2>
+      <p class="muted">The sensor streams raw data to the phone. Keep the app open during training.</p>
       <div class="hero" style="padding:14px 0">
         <div class="nm rec-live" id="recTime">00:00</div>
-        <div class="d" id="recState">не записывается</div>
+        <div class="d" id="recState">not recording</div>
       </div>
       <div class="grid2">
-        <div class="tile"><div class="n" id="sKick" style="color:var(--kick)">0</div><div class="l">удары</div></div>
-        <div class="tile"><div class="n" id="sJump" style="color:var(--jump)">0</div><div class="l">прыжки</div></div>
+        <div class="tile"><div class="n" id="sKick" style="color:var(--kick)">0</div><div class="l">kicks</div></div>
+        <div class="tile"><div class="n" id="sJump" style="color:var(--jump)">0</div><div class="l">jumps</div></div>
       </div>
-      <div class="health" style="margin:12px 0 14px" id="recHealth">поток: — Гц · сэмплов: 0</div>
-      <button class="big rec" id="recBtn" disabled>● Начать запись</button>
+      <div class="health" style="margin:12px 0 14px" id="recHealth">stream: — Hz · samples: 0</div>
+      <button class="big rec" id="recBtn" disabled>● Start recording</button>
     </div>
     <div class="card">
-      <label>Тип сессии</label>
-      <select id="sType"><option>Тренировка</option><option>Матч</option><option>Дриллы</option><option>Тест</option></select>
-      <label>Заметки</label>
-      <input id="sNote" placeholder="напр. работа над ударом">
+      <label>Session type</label>
+      <select id="sType"><option>Training</option><option>Match</option><option>Drills</option><option>Test</option></select>
+      <label>Notes</label>
+      <input id="sNote" placeholder="e.g. working on shooting">
     </div>
   </section>
 
-  <!-- ===== КАЛИБРОВКА ===== -->
+  <!-- ===== CALIBRATION ===== -->
   <section id="tab-calib">
     <div class="card">
-      <h2>Калибровка</h2>
-      <p class="muted">Для каждого движения: <b>«Записать»</b> → поделай 6–8 раз → <b>«Стоп»</b>. Обязательно запиши <b>Бег и Спринт</b> — по ним ставится порог столкновений.</p>
+      <h2>Calibration</h2>
+      <p class="muted">For each movement: <b>"Record"</b> → do it 6–8 times → <b>"Stop"</b>. Be sure to record <b>Run and Kick</b> — the kick threshold is set from them.</p>
       <div id="calibList" style="display:flex;flex-direction:column;gap:10px;margin-top:12px"></div>
-      <button class="big" id="calibCalc" style="margin-top:14px">📊 Рассчитать и сохранить пороги</button>
+      <button class="big" id="calibCalc" style="margin-top:14px">📊 Calculate and save thresholds</button>
       <div id="calibResult" style="margin-top:12px;font-size:14px"></div>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+        <label>Kick threshold override, g <span class="muted">(leave empty for auto)</span></label>
+        <div style="display:flex;gap:8px">
+          <input id="kickManual" type="number" inputmode="decimal" step="0.1" placeholder="auto" style="flex:1">
+          <button class="ghost" id="kickManualApply" style="white-space:nowrap">Apply</button>
+        </div>
+        <div class="muted" id="kickManualMsg" style="margin-top:6px"></div>
+      </div>
     </div>
     <div class="card" id="calibSummaryCard" style="display:none">
-      <h3 style="margin-bottom:10px">Полная информация по калибровке</h3>
+      <h3 style="margin-bottom:10px">Full calibration details</h3>
       <div id="calibSummary"></div>
     </div>
   </section>
 
-  <!-- ===== ИСТОРИЯ ===== -->
+  <!-- ===== HISTORY ===== -->
   <section id="tab-history">
-    <div class="card"><h2>История сессий</h2><div id="histList"><div class="muted">пока нет записанных сессий</div></div></div>
+    <div class="card"><h2>Session history</h2><div id="histList"><div class="muted">no recorded sessions yet</div></div></div>
   </section>
 
-  <!-- ===== АНАЛИТИКА (одна сессия) ===== -->
+  <!-- ===== ANALYTICS (single session) ===== -->
   <section id="tab-analytics">
-    <button class="ghost" id="backHist" style="margin-bottom:12px">← к истории</button>
+    <button class="ghost" id="backHist" style="margin-bottom:12px">← back to history</button>
     <div id="analytics"></div>
   </section>
 
-  <!-- ===== ПРОФИЛЬ ===== -->
+  <!-- ===== PROFILE ===== -->
   <section id="tab-profile">
     <div class="card">
-      <h2>Профиль игрока</h2>
-      <label>Имя</label><input id="pName" placeholder="Имя">
-      <label>Рабочая нога</label><select id="pFoot"><option>Правая</option><option>Левая</option></select>
-      <label>Рост, см</label><input id="pHeight" type="number" placeholder="180">
-      <label>Длина стопы, см <span class="muted">(для оценки скорости удара)</span></label><input id="pFootLen" type="number" placeholder="26">
-      <button class="big" id="saveProfile" style="margin-top:14px">Сохранить</button>
+      <h2>Player profile</h2>
+      <label>Name</label><input id="pName" placeholder="Name">
+      <label>Strong foot</label><select id="pFoot"><option>Right</option><option>Left</option></select>
+      <label>Height, cm</label><input id="pHeight" type="number" placeholder="180">
+      <label>Foot length, cm <span class="muted">(for kick speed estimate)</span></label><input id="pFootLen" type="number" placeholder="26">
+      <button class="big" id="saveProfile" style="margin-top:14px">Save</button>
       <div class="muted" id="profSaved" style="margin-top:8px"></div>
     </div>
-    <div class="card"><h3>Данные</h3><p class="muted">Сессии хранятся на телефоне. Экспортируй важные в CSV.</p></div>
+    <div class="card"><h3>Data</h3><p class="muted">Sessions are stored on the phone. Export important ones to CSV.</p></div>
   </section>
 </div>
 
 <nav class="nav">
-  <a data-tab="device" class="act"><span class="i">📡</span>Датчик</a>
-  <a data-tab="session"><span class="i">⏺</span>Сессия</a>
-  <a data-tab="calib"><span class="i">🎯</span>Калибр.</a>
-  <a data-tab="history"><span class="i">📊</span>История</a>
-  <a data-tab="profile"><span class="i">👤</span>Профиль</a>
+  <a data-tab="device" class="act"><span class="i">📡</span>Sensor</a>
+  <a data-tab="session"><span class="i">⏺</span>Session</a>
+  <a data-tab="calib"><span class="i">🎯</span>Calib.</a>
+  <a data-tab="history"><span class="i">📊</span>History</a>
+  <a data-tab="profile"><span class="i">👤</span>Profile</a>
 </nav>
 
 <script src="detector.js"></script>

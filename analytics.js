@@ -113,7 +113,7 @@ function estimateGCT(aDyn, stepTimes){
 
 // ================= SVG-графики =================
 const ZC={idle:'#7a86a1',walk:'#2dd4bf',run:'#37d67a',sprint:'#ffd23f'};
-const ZN={idle:'Покой',walk:'Ходьба',run:'Бег',sprint:'Спринт'};
+const ZN={idle:'Idle',walk:'Walk',run:'Run',sprint:'Sprint'};
 
 function svgDonut(zones){
   const total=Object.values(zones).reduce((a,b)=>a+b,0)||1;
@@ -127,14 +127,14 @@ function svgDonut(zones){
   const legend=['idle','walk','run'].map(k=>
     `<div style="display:flex;align-items:center;gap:6px;font-size:13px">
        <span style="width:10px;height:10px;border-radius:2px;background:${ZC[k]}"></span>
-       ${ZN[k]} · ${Math.round(zones[k])}с</div>`).join('');
+       ${ZN[k]} · ${Math.round(zones[k])}s</div>`).join('');
   return `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
     <svg width="140" height="140" viewBox="0 0 140 140">${segs.join('')}</svg>
     <div style="display:flex;flex-direction:column;gap:6px">${legend}</div></div>`;
 }
 
 function svgTimeline(timeline){
-  if(!timeline.length) return '<div class="muted">нет данных</div>';
+  if(!timeline.length) return '<div class="muted">no data</div>';
   const W=580,H=120,pad=6;
   const maxA=Math.max(0.8,...timeline.map(p=>p.act));
   const maxT=timeline[timeline.length-1].t||1;
@@ -146,11 +146,11 @@ function svgTimeline(timeline){
   }).join('');
   return `<div style="overflow-x:auto"><svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="min-width:320px">
     ${bars}<polyline points="${pts}" fill="none" stroke="#3aa0ff" stroke-width="2"/></svg></div>
-    <div class="muted" style="text-align:center">интенсивность по ходу сессии</div>`;
+    <div class="muted" style="text-align:center">intensity over the session</div>`;
 }
 
 function svgBars(vals, color, unit){
-  if(!vals.length) return '<div class="muted">нет данных</div>';
+  if(!vals.length) return '<div class="muted">no data</div>';
   const max=Math.max(...vals)||1;
   return `<div style="display:flex;align-items:flex-end;gap:4px;height:80px">`+
     vals.map(v=>`<div title="${v.toFixed(1)}${unit||''}" style="flex:1;background:${color};border-radius:3px 3px 0 0;height:${Math.max(4,v/max*100)}%"></div>`).join('')+

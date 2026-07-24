@@ -7,7 +7,8 @@ function loadThresholds(){
   const z=(c.zones)||{idle:0.086,walk:0.379,run:0.699};
   return {
     idle:z.idle, walk:z.walk, run:z.run,
-    kickAcc: c.kickAcc || 8,        // g — пик касания мяча (выше бегового пика ускорения)
+    // g — пик касания мяча (выше бегового пика). Ручной override (kickManual) перебивает автоформулу.
+    kickAcc: (c.kickManual!=null ? +c.kickManual : (c.kickAcc || 8)),
     freefall:0.35, freefallMin:60, landing:2.5,
     capMs:80, coolMs:350, winMs:700, idleGyro:30, dt:10
   };
