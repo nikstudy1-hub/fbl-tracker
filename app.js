@@ -17,14 +17,27 @@ let rec=null;              // {startMs, events:[], raw:{ax..}, samples}
 let recTimer=null, healthTimer=null, wakeLock=null;
 
 // ================= BLE =================
-$('connectBtn').onclick=connect;
+let wantConnected=false, connecting=false, reconnectTimer=null, retry=0;
+$('connectBtn').onclick=()=>{ wantConnected ? userDisconnect() : connect(); };
+
+// первый коннект: выбор устройства из системного диалога
 async function connect(){
   if(!navigator.bluetooth){ alert('Chrome on Android required (Web Bluetooth).'); return; }
   try{
     setConn('searching…',false);
     dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:[SERVICE]});
     dev.addEventListener('gattserverdisconnected',onDisc);
-    setConn('connecting…',false);
+    wantConnected=true; retry=0;
+    await connectGatt();
+  }catch(e){ wantConnected=false; setConn('error',false); console.error(e); }
+}
+
+// (пере)подключение GATT к уже выбранному устройству — без повторного диалога
+async function connectGatt(){
+  if(connecting || !dev) return;
+  connecting=true;
+  try{
+    setConn(retry?`reconnecting… (${retry})`:'connecting…',false);
     const srv=await dev.gatt.connect();
     const svc=await srv.getPrimaryService(SERVICE);
     const evc=await svc.getCharacteristic(EVENT);
@@ -34,22 +47,62 @@ async function connect(){
     await dc.startNotifications();
     dc.addEventListener('characteristicvaluechanged',e=>onData(e.target.value));
     ctrlCh=await svc.getCharacteristic(CTRL);
-    connected=true; setConn('connected',true);
-    $('connectBtn').textContent='Connected ✓'; $('recBtn').disabled=false;
+    connected=true; retry=0; setConn('connected',true);
+    $('connectBtn').textContent='Disconnect'; $('recBtn').disabled=false;
     // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
-    detector=new Detector({onEvent:onDetEvent, onState:onDetState});
+    if(!detector) detector=new Detector({onEvent:onDetEvent, onState:onDetState});
     try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
+    requestWake();   // держим экран, пока подключены — иначе Web Bluetooth рвёт связь при гашении
     // прочитать статус SD (отправлен при подключении)
     const rd=async()=>{try{onEvent(new TextDecoder().decode(await evc.readValue()).trim());}catch(e){}};
     rd(); setTimeout(rd,400); setTimeout(rd,1200);
-  }catch(e){ setConn('error',false); console.error(e); }
+  }catch(e){
+    console.error('connectGatt failed',e); connected=false;
+    if(wantConnected) scheduleReconnect();
+  }finally{ connecting=false; }
 }
+
+// разрыв соединения (само, не по кнопке) — держим запись и авто-переподключаемся
 function onDisc(){
-  connected=false; streaming=false; detector=null;
-  setConn('disconnected',false);
-  $('connectBtn').textContent='Reconnect'; $('recBtn').disabled=true;
-  if(rec) stopRec(true);
+  connected=false; streaming=false;
+  releaseWake();
+  if(!wantConnected){
+    detector=null;
+    setConn('disconnected',false);
+    $('connectBtn').textContent='Connect sensor'; $('recBtn').disabled=true;
+    return;
+  }
+  $('recBtn').disabled=true;
+  scheduleReconnect();
 }
+function scheduleReconnect(){
+  clearTimeout(reconnectTimer);
+  const delay=Math.min(1200*Math.pow(1.6,retry), 8000); retry++;
+  setConn(`reconnecting… (${retry})`,false);
+  reconnectTimer=setTimeout(()=>{ if(wantConnected) connectGatt(); }, delay);
+}
+// разрыв по кнопке пользователя — глушим авто-реконнект
+function userDisconnect(){
+  wantConnected=false; clearTimeout(reconnectTimer); retry=0;
+  releaseWake();
+  try{ if(dev&&dev.gatt&&dev.gatt.connected) dev.gatt.disconnect(); }catch(e){}
+  connected=false; streaming=false; detector=null;
+  if(rec) stopRec(true);
+  setConn('disconnected',false);
+  $('connectBtn').textContent='Connect sensor'; $('recBtn').disabled=true;
+}
+// wake lock: удержание экрана. Освобождается системой при уходе со вкладки — берём заново при возврате.
+async function requestWake(){
+  if(wakeLock) return;
+  try{ if('wakeLock' in navigator && document.visibilityState==='visible'){ wakeLock=await navigator.wakeLock.request('screen'); } }catch(e){}
+}
+function releaseWake(){ if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; } }
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && wantConnected){
+    requestWake();
+    if(!connected && !connecting){ retry=0; connectGatt(); }   // экран вернулся — сразу переподключаемся
+  }
+});
 
 // ---- текстовые сообщения датчика: только статус SD (движения ловит телефон) ----
 function onEvent(msg){
@@ -127,7 +180,7 @@ async function startRec(){
   dCounts={KICK:0,JUMP:0};
   $('sKick').textContent='0';$('sJump').textContent='0';
   // поток уже идёт (включён при подключении) — просто начинаем копить
-  try{ wakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
+  requestWake();   // wake lock уже взят при подключении; на всякий случай подтверждаем
   $('recBtn').textContent='■ Stop'; $('recState').textContent='● recording'; $('recState').style.color='#ff4d6d';
   recTimer=setInterval(()=>{ const s=Math.floor((Date.now()-rec.startMs)/1000); $('recTime').textContent=mmss(s); },500);
   healthTimer=setInterval(()=>{ const el=(Date.now()-rec.startMs)/1000; const hz=el>0?Math.round(rec.samples/el):0;
@@ -136,8 +189,7 @@ async function startRec(){
 async function stopRec(silent){
   const r=rec; rec=null;
   clearInterval(recTimer); clearInterval(healthTimer);
-  // поток НЕ выключаем — он нужен для live-детекции; просто перестаём копить
-  if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLock=null; }
+  // поток НЕ выключаем — он нужен для live-детекции; wake lock держим, пока подключены
   $('recBtn').textContent='● Start recording'; $('recState').textContent='not recording'; $('recState').style.color='';
   $('recTime').textContent='00:00'; $('recHealth').innerHTML='stream: — Hz · samples: 0';
   if(!r || (r.samples===0 && r.events.length===0)) return;
@@ -407,7 +459,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.5';
+const APP_VERSION='v1.6';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
