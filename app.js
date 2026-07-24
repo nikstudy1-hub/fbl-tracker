@@ -64,9 +64,18 @@ function onDetEvent(type,data){
   if(dCounts[type]!==undefined){ dCounts[type]++; if(rec)recCount(type); }
   refreshCounts(); addLive(info,msg);
   if(rec) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g,air:data.air,h:data.h});
+  // после разового события (удар/прыжок) вернуть плашку к текущему состоянию,
+  // иначе "KICK" висит, пока не сменится зона (при беге состояние не меняется → onDetState молчит)
+  clearTimeout(heroRevertTimer);
+  heroRevertTimer=setTimeout(revertHeroToState, 800);
+}
+let heroRevertTimer=null;
+function revertHeroToState(){
+  const info=EV[prevState]; if(info) hero(info, prevState);
 }
 function onDetState(state,act){
   const info=EV[state]; if(!info) return;
+  clearTimeout(heroRevertTimer);   // живое состояние важнее «висящего» события
   hero(info,`${state} a=${act.toFixed(2)}g`);
   prevState=state;
   if(rec) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
@@ -398,7 +407,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.4';
+const APP_VERSION='v1.5';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
