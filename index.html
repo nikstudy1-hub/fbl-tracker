@@ -44,10 +44,13 @@
   .nav a{flex:1;text-align:center;padding:9px 0 10px;color:var(--dim);text-decoration:none;font-size:11px}
   .nav a.act{color:var(--accent)}
   .nav a .i{display:block;font-size:20px;margin-bottom:2px}
+  .ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+  .nav a .ic{display:block;margin:0 auto 3px}
+  .pill .ic{width:14px;height:14px;margin-right:5px;color:var(--accent)}
   .hero{text-align:center;padding:22px 0}
   .hero .e{font-size:64px;line-height:1}.hero .nm{font-size:32px;font-weight:800;margin-top:6px}
   .hero .d{color:var(--dim);margin-top:4px;height:18px}
-  .pill{display:inline-block;padding:4px 12px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-size:12px}
+  .pill{display:inline-flex;align-items:center;padding:4px 12px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-size:12px}
   .rec-live{font-variant-numeric:tabular-nums}
   .bar{height:8px;border-radius:6px;background:var(--card2);overflow:hidden}.bar>i{display:block;height:100%}
   section{display:none}section.act{display:block}
@@ -56,6 +59,15 @@
 </style>
 </head>
 <body>
+<!-- SVG icon sprite (inline, offline-safe; Lucide-style geometry) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-sensor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M19.07 4.93a10 10 0 0 1 0 14.14"/></symbol>
+  <symbol id="i-session" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-calib" viewBox="0 0 24 24"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-profile" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-sd" viewBox="0 0 24 24"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><line x1="9" x2="9" y1="5.5" y2="8.5"/><line x1="12" x2="12" y1="5.5" y2="8.5"/><line x1="15" x2="15" y1="6.5" y2="8.5"/></symbol>
+</defs></svg>
 <div class="topbar">
   <div class="brand"><span id="ver" style="font-size:12px;color:var(--dim);font-weight:400"></span></div>
   <div class="conn"><span class="dot" id="dot"></span><span id="connTxt">not connected</span></div>
@@ -68,7 +80,7 @@
       <div class="e" id="heroE">🎯</div>
       <div class="nm" id="heroN">READY</div>
       <div class="d" id="heroD">connect sensor FBL-Sensor-01</div>
-      <div style="margin-top:10px"><span class="pill" id="sdPill">💾 SD: —</span></div>
+      <div style="margin-top:10px"><span class="pill" id="sdPill"><svg class="ic"><use href="#i-sd"/></svg><span id="sdText">SD: —</span></span></div>
     </div>
     <button class="big" id="connectBtn">Connect sensor</button>
     <div class="grid2" style="margin-top:14px">
@@ -159,11 +171,11 @@
 </div>
 
 <nav class="nav">
-  <a data-tab="device" class="act"><span class="i">📡</span>Sensor</a>
-  <a data-tab="session"><span class="i">⏺</span>Session</a>
-  <a data-tab="calib"><span class="i">🎯</span>Calib.</a>
-  <a data-tab="history"><span class="i">📊</span>History</a>
-  <a data-tab="profile"><span class="i">👤</span>Profile</a>
+  <a data-tab="device" class="act"><svg class="ic"><use href="#i-sensor"/></svg>Sensor</a>
+  <a data-tab="session"><svg class="ic"><use href="#i-session"/></svg>Session</a>
+  <a data-tab="calib"><svg class="ic"><use href="#i-calib"/></svg>Calib.</a>
+  <a data-tab="history"><svg class="ic"><use href="#i-history"/></svg>History</a>
+  <a data-tab="profile"><svg class="ic"><use href="#i-profile"/></svg>Profile</a>
 </nav>
 
 <script src="detector.js"></script>

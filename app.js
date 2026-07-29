@@ -106,7 +106,7 @@ document.addEventListener('visibilitychange',()=>{
 
 // ---- текстовые сообщения датчика: только статус SD (движения ловит телефон) ----
 function onEvent(msg){
-  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ $('sdPill').textContent='💾 '+msg; }
+  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ const el=$('sdText')||$('sdPill'); el.textContent=msg; }
 }
 // ---- события от детектора на телефоне (по личным порогам) ----
 function onDetEvent(type,data){
@@ -163,12 +163,15 @@ setInterval(()=>{
   const el=$('dbg'); if(!el)return;
   if(!connected){ el.textContent='no data — connect sensor'; return; }
   let t={}; try{ t=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
-  const kickThr = (t.kickManual!=null ? t.kickManual : (t.kickAcc!=null ? t.kickAcc : '—'));
+  // показываем РЕАЛЬНЫЙ действующий порог (как его видит детектор): manual → сохранённый → дефолт 8
+  const hasManual = t.kickManual!=null;
+  const kickThr = hasManual ? t.kickManual : (t.kickAcc!=null ? t.kickAcc : 8);
+  const kickTag = hasManual ? ' (manual)' : (t.kickAcc!=null ? '' : ' (default)');
   const act=dbg.cntDyn?dbg.sumDyn/dbg.cntDyn:0;
   el.innerHTML=`stream ${dbg.n*2} Hz · a=${dbg.lastA.toFixed(1)}g<br>`+
     `<b style="color:#ff7a3c">PEAK acc=${dbg.peakA.toFixed(1)}g</b> · peak gyro=${Math.round(dbg.peakG)}<br>`+
     `act=${act.toFixed(2)} · state ${prevState||'—'}<br>`+
-    `kick thr &gt;${kickThr}g${t.kickManual!=null?' (manual)':''} · run thr &gt;${t.zones?t.zones.walk.toFixed(2):'—'}`;
+    `kick thr &gt;${kickThr}g${kickTag} · run thr &gt;${t.zones?t.zones.walk.toFixed(2):'—'}`;
   dbg.n=0;dbg.peakA=0;dbg.peakG=0;dbg.sumDyn=0;dbg.cntDyn=0;
 },500);
 
@@ -459,7 +462,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.6';
+const APP_VERSION='v1.8';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
