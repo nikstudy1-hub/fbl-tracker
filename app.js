@@ -4,8 +4,11 @@ const EVENT  ='a0f10001-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const CTRL   ='a0f10002-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const DATA   ='a0f10003-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 
-const EV = {KICK:{e:'⚽',n:'KICK',c:'#ff7a3c'},JUMP:{e:'🦘',n:'JUMP',c:'#b06bff'},
+const EV = {KICK:{e:'⚽',svg:'i-ball',n:'KICK',c:'#ff7a3c'},JUMP:{e:'🦘',svg:'i-jump',n:'JUMP',c:'#b06bff'},
   IDLE:{e:'🧍',n:'IDLE',c:'#7a86a1'},WALK:{e:'🚶',n:'WALK',c:'#2dd4bf'},RUN:{e:'🏃',n:'RUN',c:'#37d67a'}};
+// иконка события: вектор (мяч/прыжок) если задан svg, иначе эмодзи-статус текстом
+function svgIco(sym,color,size){ return `<svg class="ic" style="width:${size}px;height:${size}px;stroke:${color}"><use href="#${sym}"/></svg>`; }
+function evIcon(info,size){ return (info&&info.svg) ? svgIco(info.svg,info.c,size) : (info?info.e:''); }
 
 const $=id=>document.getElementById(id);
 let dev=null, ctrlCh=null, connected=false, streaming=false, detector=null;
@@ -133,7 +136,12 @@ function onDetState(state,act){
   prevState=state;
   if(rec) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
 }
-function hero(info,msg){ $('heroE').textContent=info.e; $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg; }
+function hero(info,msg){
+  const e=$('heroE');
+  if(info.svg){ e.innerHTML=svgIco(info.svg,info.c,58); }
+  else { e.innerHTML=''; e.textContent=info.e; }
+  $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg;
+}
 function refreshCounts(){ $('dKick').textContent=dCounts.KICK; $('dJump').textContent=dCounts.JUMP; }
 function recCount(type){
   if(type==='KICK')$('sKick').textContent=+($('sKick').textContent)+1;
@@ -222,7 +230,7 @@ async function renderHistory(){
     return `<div class="row" onclick="openAnalytics(${s.id})" style="cursor:pointer">
       <span class="ico">📊</span>
       <span style="flex:1"><b>${s.type}</b> · ${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
-        <div class="muted">${dur} · ⚽${k} 🦘${j} · ${s.samples} samples</div></span>
+        <div class="muted">${dur} · ${svgIco('i-ball','var(--kick)',12)}${k} ${svgIco('i-jump','var(--jump)',12)}${j} · ${s.samples} samples</div></span>
       <span class="muted">›</span></div>`;
   }).join('');
 }
@@ -239,8 +247,8 @@ async function openAnalytics(id){
       <div class="muted">${d.toLocaleTimeString('en-GB')} · duration ${mmss(Math.floor(m.durS))}${s.note?' · '+s.note:''}</div>
     </div>
     <div class="grid2">
-      <div class="tile"><div class="n" style="color:var(--kick)">${m.kicks}</div><div class="l">⚽ kicks</div></div>
-      <div class="tile"><div class="n" style="color:var(--jump)">${m.jumps}</div><div class="l">🦘 jumps</div></div>
+      <div class="tile"><div class="n" style="color:var(--kick)">${m.kicks}</div><div class="l"><svg class="ic" style="stroke:var(--kick)"><use href="#i-ball"/></svg>kicks</div></div>
+      <div class="tile"><div class="n" style="color:var(--jump)">${m.jumps}</div><div class="l"><svg class="ic" style="stroke:var(--jump)"><use href="#i-jump"/></svg>jumps</div></div>
     </div>
     <div class="grid3" style="margin-top:10px">
       <div class="tile"><div class="n">${m.steps}</div><div class="l">steps</div></div>
@@ -447,7 +455,7 @@ function addLive(info,msg){
   const f=$('liveFeed'); if(f.querySelector('.muted'))f.innerHTML='';
   const now=new Date(); const t=now.toLocaleTimeString('en-GB',{hour12:false});
   const r=document.createElement('div'); r.className='row';
-  r.innerHTML=`<span class="ico">${info.e}</span><span class="t" style="color:${info.c}">${info.n}</span><span class="d">${msg}</span><span class="tm">${t}</span>`;
+  r.innerHTML=`<span class="ico">${evIcon(info,18)}</span><span class="t" style="color:${info.c}">${info.n}</span><span class="d">${msg}</span><span class="tm">${t}</span>`;
   f.prepend(r); while(f.children.length>60)f.removeChild(f.lastChild);
 }
 function num(parts,key){ const t=parts.find(x=>x.startsWith(key+'=')); if(!t)return null; return parseFloat(t.slice(key.length+1)); }
@@ -462,7 +470,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.8';
+const APP_VERSION='v1.9';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();

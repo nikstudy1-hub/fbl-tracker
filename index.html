@@ -47,6 +47,8 @@
   .ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
   .nav a .ic{display:block;margin:0 auto 3px}
   .pill .ic{width:14px;height:14px;margin-right:5px;color:var(--accent)}
+  .l .ic{width:13px;height:13px;vertical-align:-1px;margin-right:3px}
+  .ico .ic{width:18px;height:18px;vertical-align:middle}
   .hero{text-align:center;padding:22px 0}
   .hero .e{font-size:64px;line-height:1}.hero .nm{font-size:32px;font-weight:800;margin-top:6px}
   .hero .d{color:var(--dim);margin-top:4px;height:18px}
@@ -67,6 +69,8 @@
   <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
   <symbol id="i-profile" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
   <symbol id="i-sd" viewBox="0 0 24 24"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><line x1="9" x2="9" y1="5.5" y2="8.5"/><line x1="12" x2="12" y1="5.5" y2="8.5"/><line x1="15" x2="15" y1="6.5" y2="8.5"/></symbol>
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.2l3.4 2.5-1.3 4h-4.2l-1.3-4z"/><path d="M12 7.2V3.2M15.4 9.7l3.5-1.4M14.1 13.7l2.8 2.7M9.9 13.7l-2.8 2.7M8.6 9.7L5.1 8.3"/></symbol>
+  <symbol id="i-jump" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 20h14"/></symbol>
 </defs></svg>
 <div class="topbar">
   <div class="brand"><span id="ver" style="font-size:12px;color:var(--dim);font-weight:400"></span></div>
@@ -84,8 +88,8 @@
     </div>
     <button class="big" id="connectBtn">Connect sensor</button>
     <div class="grid2" style="margin-top:14px">
-      <div class="tile"><div class="n" id="dKick" style="color:var(--kick)">0</div><div class="l">⚽ kicks</div></div>
-      <div class="tile"><div class="n" id="dJump" style="color:var(--jump)">0</div><div class="l">🦘 jumps</div></div>
+      <div class="tile"><div class="n" id="dKick" style="color:var(--kick)">0</div><div class="l"><svg class="ic" style="stroke:var(--kick)"><use href="#i-ball"/></svg>kicks</div></div>
+      <div class="tile"><div class="n" id="dJump" style="color:var(--jump)">0</div><div class="l"><svg class="ic" style="stroke:var(--jump)"><use href="#i-jump"/></svg>jumps</div></div>
     </div>
     <div class="card" style="margin-top:14px;padding:12px 14px">
       <div style="font-size:12px;color:var(--dim);margin-bottom:4px">debug (live data)</div>
@@ -107,8 +111,8 @@
         <div class="d" id="recState">not recording</div>
       </div>
       <div class="grid2">
-        <div class="tile"><div class="n" id="sKick" style="color:var(--kick)">0</div><div class="l">kicks</div></div>
-        <div class="tile"><div class="n" id="sJump" style="color:var(--jump)">0</div><div class="l">jumps</div></div>
+        <div class="tile"><div class="n" id="sKick" style="color:var(--kick)">0</div><div class="l"><svg class="ic" style="stroke:var(--kick)"><use href="#i-ball"/></svg>kicks</div></div>
+        <div class="tile"><div class="n" id="sJump" style="color:var(--jump)">0</div><div class="l"><svg class="ic" style="stroke:var(--jump)"><use href="#i-jump"/></svg>jumps</div></div>
       </div>
       <div class="health" style="margin:12px 0 14px" id="recHealth">stream: — Hz · samples: 0</div>
       <button class="big rec" id="recBtn" disabled>● Start recording</button>
