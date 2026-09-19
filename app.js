@@ -109,7 +109,16 @@ document.addEventListener('visibilitychange',()=>{
 
 // ---- текстовые сообщения датчика: только статус SD (движения ловит телефон) ----
 function onEvent(msg){
-  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ const el=$('sdText')||$('sdPill'); el.textContent=msg; }
+  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ const el=$('sdText')||$('sdPill'); el.textContent=msg; return; }
+  if(msg.startsWith('BAT')){                     // "BAT <volts> <percent>"
+    const p=msg.split(/\s+/); const v=parseFloat(p[1]), pct=parseInt(p[2]);
+    const el=$('batText'); const pill=$('batPill');
+    if(el && !isNaN(pct)){
+      el.textContent = pct+'% · '+(isNaN(v)?'':v.toFixed(2)+'V');
+      if(pill) pill.style.color = pct<=15 ? 'var(--impact)' : (pct<=40 ? 'var(--sprint)' : 'var(--run)');
+    }
+    return;
+  }
 }
 // ---- события от детектора на телефоне (по личным порогам) ----
 function onDetEvent(type,data){
@@ -470,7 +479,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v1.9';
+const APP_VERSION='v2.0';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
