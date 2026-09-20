@@ -54,8 +54,9 @@ async function connectGatt(){
     $('connectBtn').textContent='Disconnect'; $('recBtn').disabled=false;
     // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
     if(!detector) detector=new Detector({onEvent:onDetEvent, onState:onDetState});
-    try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
     requestWake();   // держим экран, пока подключены — иначе Web Bluetooth рвёт связь при гашении
+    // сначала синхронизируем офлайн-сессии с карты, потом включаем live-стрим
+    startSync();
     // прочитать статус SD (отправлен при подключении)
     const rd=async()=>{try{onEvent(new TextDecoder().decode(await evc.readValue()).trim());}catch(e){}};
     rd(); setTimeout(rd,400); setTimeout(rd,1200);
@@ -67,7 +68,8 @@ async function connectGatt(){
 
 // разрыв соединения (само, не по кнопке) — держим запись и авто-переподключаемся
 function onDisc(){
-  connected=false; streaming=false;
+  connected=false; streaming=false; sync=null;
+  const ss=$('syncStatus'); if(ss) ss.style.display='none';
   releaseWake();
   if(!wantConnected){
     detector=null;
@@ -159,7 +161,7 @@ function recCount(type){
 
 // ---- сырые данные (бинарь) ----
 function onData(dv){
-  if(dv.getUint8(0)!==0x52) return;            // не 'R' (напр. файл-синк) — игнор
+  if(dv.getUint8(0)!==0x52){ onSyncPacket(dv); return; }   // 'R' = live-сырьё; иначе пакет файл-синка
   const n=Math.floor((dv.byteLength-3)/12);
   for(let i=0;i<n;i++){
     const o=3+i*12;
@@ -228,6 +230,79 @@ async function dbAdd(s){ const d=await db(); return new Promise(r=>{ d.transacti
 async function dbAll(){ const d=await db(); return new Promise(r=>{ const rq=d.transaction('sessions').objectStore('sessions').getAll(); rq.onsuccess=()=>r(rq.result||[]); }); }
 async function dbGet(id){ const d=await db(); return new Promise(r=>{ const rq=d.transaction('sessions').objectStore('sessions').get(id); rq.onsuccess=()=>r(rq.result); }); }
 async function dbDel(id){ const d=await db(); return new Promise(r=>{ d.transaction('sessions','readwrite').objectStore('sessions').delete(id).onsuccess=r; }); }
+
+// ================= OFFLINE-СИНХРОНИЗАЦИЯ (SES*.BIN сырьё с карты) =================
+let sync=null, syncMsgTimer=null;
+function syncedSet(){ try{ return new Set(JSON.parse(localStorage.getItem('fbl_synced_ses')||'[]')); }catch(e){ return new Set(); } }
+function markSynced(name){ const s=syncedSet(); s.add(name); localStorage.setItem('fbl_synced_ses', JSON.stringify([...s])); }
+function setSync(msg, hideAfter){ const el=$('syncStatus'); if(!el)return; el.textContent='🔄 '+msg; el.style.display='block';
+  clearTimeout(syncMsgTimer); if(hideAfter) syncMsgTimer=setTimeout(()=>{ el.style.display='none'; }, hideAfter); }
+
+async function startSync(){
+  if(!ctrlCh || sync){ enableLive(); return; }
+  sync={ files:[], queue:[], cur:null, done:0 };
+  setSync('checking device…');
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('LIST')); }catch(e){ finishSync(); }
+}
+function onSyncPacket(dv){
+  if(!sync) return;
+  const type=String.fromCharCode(dv.getUint8(0));
+  if(type==='D'){                                   // бинарный кусок файла
+    if(sync.cur){ const b=new Uint8Array(dv.buffer.slice(dv.byteOffset+1, dv.byteOffset+dv.byteLength));
+      sync.cur.parts.push(b); sync.cur.recv+=b.length;
+      if(sync.cur.size) setSync(`downloading ${sync.cur.name}: ${Math.round(100*sync.cur.recv/sync.cur.size)}%`); }
+    return;
+  }
+  const s=new TextDecoder().decode(dv), payload=s.slice(1);
+  if(type==='L'){ const c=payload.split(','); sync.files.push({name:c[0], size:parseInt(c[1])||0}); }
+  else if(type==='E' && payload==='LIST'){ onListDone(); }
+  else if(type==='B'){ const c=payload.split(','); sync.cur={name:c[0], size:parseInt(c[1])||0, parts:[], recv:0}; }
+  else if(type==='E' && payload==='FILE'){ onFileDone(); }
+}
+function onListDone(){
+  const done=syncedSet();
+  sync.queue = sync.files.filter(f=>/^SES\d+\.BIN$/i.test(f.name) && f.size>=120 && !done.has(f.name));
+  if(!sync.queue.length){ setSync('no new sessions', 2500); finishSync(); return; }
+  setSync(`${sync.queue.length} new session(s) to download`);
+  nextInQueue();
+}
+async function nextInQueue(){
+  const f=sync.queue.shift();
+  if(!f){ setSync(`✓ synced ${sync.done} session(s)`, 4000); finishSync(); return; }
+  setSync(`downloading ${f.name}…`);
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('GET '+f.name)); }catch(e){ finishSync(); }
+}
+async function onFileDone(){
+  const c=sync.cur; sync.cur=null;
+  if(c){
+    try{
+      const buf=new Uint8Array(await new Blob(c.parts).arrayBuffer());
+      const sess=sessionFromRaw(c.name, buf);
+      if(sess){ await dbAdd(sess); markSynced(c.name); sync.done++; renderHistory(); }
+      else markSynced(c.name);   // мусорный/пустой файл — не тянем повторно
+    }catch(e){ console.error('parse fail',e); }
+  }
+  nextInQueue();
+}
+// Собираем объект сессии из сырья + прогон детектора по личным порогам
+function sessionFromRaw(name, buf){
+  const rec=Math.floor(buf.length/12); if(rec<50) return null;
+  const dv=new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const raw={ax:[],ay:[],az:[],gx:[],gy:[],gz:[]};
+  for(let i=0;i<rec;i++){ const o=i*12;
+    raw.ax.push(dv.getInt16(o,true)/1000); raw.ay.push(dv.getInt16(o+2,true)/1000); raw.az.push(dv.getInt16(o+4,true)/1000);
+    raw.gx.push(dv.getInt16(o+6,true)/10);  raw.gy.push(dv.getInt16(o+8,true)/10);  raw.gz.push(dv.getInt16(o+10,true)/10);
+  }
+  let det; const events=[];
+  det=new Detector({ onEvent:(t,d)=>events.push({t:det.t, type:t, a:d.a, g:d.g, air:d.air, h:d.h}),
+                     onState:(st,act)=>events.push({t:det.t, type:st, a:act}) });
+  for(let i=0;i<rec;i++) det.push(raw.ax[i],raw.ay[i],raw.az[i],raw.gx[i],raw.gy[i],raw.gz[i]);
+  return { id:Date.now()+Math.floor(Math.random()*1000), date:new Date().toISOString(),
+           type:'Offline', note:name, durationMs:rec*10, events, raw, samples:rec, offline:true };
+}
+function finishSync(){ sync=null; enableLive(); }
+// включаем live-стрим (после завершения синка)
+async function enableLive(){ if(connected && ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){} } }
 
 // ================= ИСТОРИЯ =================
 async function renderHistory(){
@@ -479,7 +554,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.0';
+const APP_VERSION='v2.1';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
