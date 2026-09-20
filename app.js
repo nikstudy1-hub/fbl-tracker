@@ -309,7 +309,7 @@ function onSyncPacket(dv){
 }
 function onListDone(){
   const done=syncedSet();
-  sync.queue = sync.files.filter(f=>/^SES\d+\.BIN$/i.test(f.name) && f.size>=120 && !done.has(f.name));
+  sync.queue = sync.files.filter(f=>/^SES\d+\.(CSV|BIN)$/i.test(f.name) && f.size>=500 && !done.has(f.name));
   if(!sync.queue.length){ setSync('no new sessions', 2500); finishSync(); return; }
   setSync(`${sync.queue.length} new session(s) to download`);
   nextInQueue();
@@ -325,28 +325,45 @@ async function onFileDone(){
   if(c){
     try{
       const buf=new Uint8Array(await new Blob(c.parts).arrayBuffer());
-      const sess=sessionFromRaw(c.name, buf);
-      if(sess){ await dbAdd(sess); markSynced(c.name); sync.done++; renderHistory(); }
+      const sess=sessionFromRaw(c.name, buf, c.size);
+      if(sess){ await dbAdd(sess); markSynced(c.name); sync.done++; renderHistory();
+                if(sess.diag) setSync(sess.diag, 15000); }
       else markSynced(c.name);   // мусорный/пустой файл — не тянем повторно
     }catch(e){ console.error('parse fail',e); }
   }
   nextInQueue();
 }
-// Собираем объект сессии из сырья + прогон детектора по личным порогам
-function sessionFromRaw(name, buf){
-  const rec=Math.floor(buf.length/12); if(rec<50) return null;
-  const dv=new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+// Собираем объект сессии из CSV-сырья + прогон детектора по личным порогам.
+// Формат строки: ax,ay,az,gx,gy,gz (ускорение в мg, гироскоп в dps*10).
+// declared — размер файла, заявленный устройством (проверка целостности выгрузки).
+function sessionFromRaw(name, buf, declared){
+  const lines=new TextDecoder().decode(buf).split('\n');
   const raw={ax:[],ay:[],az:[],gx:[],gy:[],gz:[]};
-  for(let i=0;i<rec;i++){ const o=i*12;
-    raw.ax.push(dv.getInt16(o,true)/1000); raw.ay.push(dv.getInt16(o+2,true)/1000); raw.az.push(dv.getInt16(o+4,true)/1000);
-    raw.gx.push(dv.getInt16(o+6,true)/10);  raw.gy.push(dv.getInt16(o+8,true)/10);  raw.gz.push(dv.getInt16(o+10,true)/10);
+  let bad=0, peakA=0, peakG=0, skipped=0;
+  for(const line of lines){
+    const t=line.trim(); if(!t) continue;
+    if(t.charCodeAt(0)>57){ skipped++; continue; }          // заголовок/мусор — не цифра и не минус
+    const v=t.split(',');
+    if(v.length!==6){ skipped++; continue; }                 // оборванная строка — пропускаем целиком
+    const ax=+v[0]/1000, ay=+v[1]/1000, az=+v[2]/1000, gx=+v[3]/10, gy=+v[4]/10, gz=+v[5]/10;
+    if(![ax,ay,az,gx,gy,gz].every(Number.isFinite)){ skipped++; continue; }
+    raw.ax.push(ax); raw.ay.push(ay); raw.az.push(az); raw.gx.push(gx); raw.gy.push(gy); raw.gz.push(gz);
+    const am=Math.hypot(ax,ay,az), gm=Math.hypot(gx,gy,gz);
+    if(am>peakA)peakA=am; if(gm>peakG)peakG=gm;
+    if(am>17 || gm>2200) bad++;
   }
+  const rec=raw.ax.length; if(rec<50) return null;
   let det; const events=[];
   det=new Detector({ onEvent:(t,d)=>events.push({t:det.t, type:t, a:d.a, g:d.g, air:d.air, h:d.h}),
                      onState:(st,act)=>events.push({t:det.t, type:st, a:act}) });
   for(let i=0;i<rec;i++) det.push(raw.ax[i],raw.ay[i],raw.az[i],raw.gx[i],raw.gy[i],raw.gz[i]);
+  const kicks=events.filter(e=>e.type==='KICK').length;
+  const sizeOk = !declared || buf.length===declared;
+  const diag = `${name}: ${rec} smp · peak ${peakA.toFixed(1)}g/${Math.round(peakG)}dps · bad ${bad} · skip ${skipped} · kicks ${kicks} · ${sizeOk?'size OK':'SIZE '+buf.length+'/'+declared}`;
+  console.log('SYNC DIAG', diag);
   return { id:Date.now()+Math.floor(Math.random()*1000), date:new Date().toISOString(),
-           type:'Offline', note:name, durationMs:rec*10, events, raw, samples:rec, offline:true };
+           type:'Offline', note:name+(sizeOk?'':' ⚠ incomplete'), durationMs:rec*10,
+           events, raw, samples:rec, offline:true, diag };
 }
 function finishSync(){ sync=null; enableLive(); }
 // включаем live-стрим (после завершения синка)
@@ -602,7 +619,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.5';
+const APP_VERSION='v2.6';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
