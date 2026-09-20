@@ -121,6 +121,8 @@ function onEvent(msg){
     }
     return;
   }
+  if(msg.startsWith('SESSION ON')){ if(!rec) setRecUI(true); return; }   // на устройстве идёт запись
+  if(msg.startsWith('SESSION OFF')){ if(rec) setRecUI(false); return; }
 }
 // ---- события от детектора на телефоне (по личным порогам) ----
 function onDetEvent(type,data){
@@ -130,7 +132,7 @@ function onDetEvent(type,data){
   hero(info,msg);
   if(dCounts[type]!==undefined){ dCounts[type]++; if(rec)recCount(type); }
   refreshCounts(); addLive(info,msg);
-  if(rec) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g,air:data.air,h:data.h});
+  if(rec && rec.events) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g,air:data.air,h:data.h});
   // после разового события (удар/прыжок) вернуть плашку к текущему состоянию,
   // иначе "KICK" висит, пока не сменится зона (при беге состояние не меняется → onDetState молчит)
   clearTimeout(heroRevertTimer);
@@ -145,7 +147,7 @@ function onDetState(state,act){
   clearTimeout(heroRevertTimer);   // живое состояние важнее «висящего» события
   hero(info,`${state} a=${act.toFixed(2)}g`);
   prevState=state;
-  if(rec) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
+  if(rec && rec.events) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
 }
 function hero(info,msg){
   const e=$('heroE');
@@ -168,14 +170,14 @@ function onData(dv){
     const ax=dv.getInt16(o,true)/1000, ay=dv.getInt16(o+2,true)/1000, az=dv.getInt16(o+4,true)/1000;
     const gx=dv.getInt16(o+6,true)/10,  gy=dv.getInt16(o+8,true)/10,  gz=dv.getInt16(o+10,true)/10;
     if(detector) detector.push(ax,ay,az,gx,gy,gz);     // распознавание по личным порогам
-    if(rec){ rec.raw.ax.push(ax);rec.raw.ay.push(ay);rec.raw.az.push(az);rec.raw.gx.push(gx);rec.raw.gy.push(gy);rec.raw.gz.push(gz); }
+    if(rec && rec.raw){ rec.raw.ax.push(ax);rec.raw.ay.push(ay);rec.raw.az.push(az);rec.raw.gx.push(gx);rec.raw.gy.push(gy);rec.raw.gz.push(gz); }
     if(calib.recording){ calibSample(ax,ay,az,gx,gy,gz); }
     // отладка
     const aM=Math.hypot(ax,ay,az), gM=Math.hypot(gx,gy,gz);
     dbg.n++; dbg.lastA=aM; if(aM>dbg.peakA)dbg.peakA=aM; if(gM>dbg.peakG)dbg.peakG=gM;
     dbg.sumDyn+=Math.abs(aM-1); dbg.cntDyn++;
   }
-  if(rec) rec.samples+=n;
+  if(rec && rec.raw) rec.samples+=n;
 }
 let dbg={n:0,peakA:0,peakG:0,lastA:1,sumDyn:0,cntDyn:0};
 setInterval(()=>{
@@ -196,29 +198,33 @@ setInterval(()=>{
 
 // ================= ЗАПИСЬ =================
 $('recBtn').onclick=()=>{ rec?stopRec(false):startRec(); };
+// «Старт тренировки» = автономная запись на карту устройства (не зависит от BLE)
 async function startRec(){
-  if(!connected) return;
-  rec={startMs:Date.now(), events:[], raw:{ax:[],ay:[],az:[],gx:[],gy:[],gz:[]}, samples:0};
-  dCounts={KICK:0,JUMP:0};
-  $('sKick').textContent='0';$('sJump').textContent='0';
-  // поток уже идёт (включён при подключении) — просто начинаем копить
-  requestWake();   // wake lock уже взят при подключении; на всякий случай подтверждаем
-  $('recBtn').textContent='■ Stop'; $('recState').textContent='● recording'; $('recState').style.color='#ff4d6d';
-  recTimer=setInterval(()=>{ const s=Math.floor((Date.now()-rec.startMs)/1000); $('recTime').textContent=mmss(s); },500);
-  healthTimer=setInterval(()=>{ const el=(Date.now()-rec.startMs)/1000; const hz=el>0?Math.round(rec.samples/el):0;
-    $('recHealth').innerHTML=`stream: <b>${hz}</b> Hz · samples: ${rec.samples}`; },1000);
+  if(!connected || !ctrlCh) return;
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 1')); }catch(e){ return; }
+  setRecUI(true);
 }
 async function stopRec(silent){
-  const r=rec; rec=null;
-  clearInterval(recTimer); clearInterval(healthTimer);
-  // поток НЕ выключаем — он нужен для live-детекции; wake lock держим, пока подключены
-  $('recBtn').textContent='● Start recording'; $('recState').textContent='not recording'; $('recState').style.color='';
-  $('recTime').textContent='00:00'; $('recHealth').innerHTML='stream: — Hz · samples: 0';
-  if(!r || (r.samples===0 && r.events.length===0)) return;
-  const sess={ id:Date.now(), date:new Date().toISOString(), type:$('sType').value, note:$('sNote').value,
-    durationMs:Date.now()-r.startMs, events:r.events, raw:r.raw, samples:r.samples };
-  await dbAdd(sess);
-  if(!silent){ renderHistory(); openAnalytics(sess.id); }
+  const wasRec = !!rec;
+  setRecUI(false);
+  if(ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 0')); }catch(e){} }
+  // дать датчику закрыть файл, затем подтянуть завершённую сессию
+  if(wasRec && !silent && connected){ setTimeout(()=>startSync(), 900); }
+}
+function setRecUI(on){
+  if(on){
+    rec={startMs:Date.now()};                 // лёгкий флаг «идёт запись» (данные — на устройстве)
+    dCounts={KICK:0,JUMP:0}; $('sKick').textContent='0'; $('sJump').textContent='0';
+    requestWake();
+    $('recBtn').textContent='■ Stop training'; $('recState').textContent='● recording on device'; $('recState').style.color='#ff4d6d';
+    $('recHealth').innerHTML='можно заблокировать телефон — запись идёт на устройстве';
+    clearInterval(recTimer);
+    recTimer=setInterval(()=>{ if(rec){ const s=Math.floor((Date.now()-rec.startMs)/1000); $('recTime').textContent=mmss(s); } },500);
+  } else {
+    rec=null; clearInterval(recTimer);
+    $('recBtn').textContent='● Start training'; $('recState').textContent='not recording'; $('recState').style.color='';
+    $('recTime').textContent='00:00'; $('recHealth').innerHTML='';
+  }
 }
 
 // ================= IndexedDB =================
@@ -242,6 +248,7 @@ async function startSync(){
   if(!ctrlCh || sync){ enableLive(); return; }
   sync={ files:[], queue:[], cur:null, done:0 };
   setSync('checking device…');
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 0')); streaming=false; }catch(e){}  // глушим live-стрим
   try{ await ctrlCh.writeValue(new TextEncoder().encode('LIST')); }catch(e){ finishSync(); }
 }
 function onSyncPacket(dv){
@@ -554,7 +561,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.1';
+const APP_VERSION='v2.2';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
