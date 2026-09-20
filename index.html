@@ -110,7 +110,11 @@
   <section id="tab-session">
     <div class="card">
       <h2>Session recording</h2>
-      <p class="muted">The sensor streams raw data to the phone. Keep the app open during training.</p>
+      <div id="modeToggle" style="display:flex;gap:8px;margin:6px 0 4px">
+        <button class="modeBtn" data-mode="auto" style="flex:1;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-weight:600">📥 Autonomous</button>
+        <button class="modeBtn" data-mode="live" style="flex:1;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-weight:600">📡 Live</button>
+      </div>
+      <p class="muted" id="modeHint" style="font-size:12px;margin:4px 0 0"></p>
       <div class="hero" style="padding:14px 0">
         <div class="nm rec-live" id="recTime">00:00</div>
         <div class="d" id="recState">not recording</div>

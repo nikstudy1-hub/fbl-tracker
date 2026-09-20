@@ -1,12 +1,12 @@
-/* FBL Tracker — BLE, запись сессий, хранение, экраны */
+﻿/* FBL Tracker вЂ” BLE, Р·Р°РїРёСЃСЊ СЃРµСЃСЃРёР№, С…СЂР°РЅРµРЅРёРµ, СЌРєСЂР°РЅС‹ */
 const SERVICE='a0f10000-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const EVENT  ='a0f10001-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const CTRL   ='a0f10002-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const DATA   ='a0f10003-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 
-const EV = {KICK:{e:'⚽',svg:'i-ball',n:'KICK',c:'#ff7a3c'},JUMP:{e:'🦘',svg:'i-jump',n:'JUMP',c:'#b06bff'},
-  IDLE:{e:'🧍',n:'IDLE',c:'#7a86a1'},WALK:{e:'🚶',n:'WALK',c:'#2dd4bf'},RUN:{e:'🏃',n:'RUN',c:'#37d67a'}};
-// иконка события: вектор (мяч/прыжок) если задан svg, иначе эмодзи-статус текстом
+const EV = {KICK:{e:'вљЅ',svg:'i-ball',n:'KICK',c:'#ff7a3c'},JUMP:{e:'рџ¦',svg:'i-jump',n:'JUMP',c:'#b06bff'},
+  IDLE:{e:'рџ§Ќ',n:'IDLE',c:'#7a86a1'},WALK:{e:'рџљ¶',n:'WALK',c:'#2dd4bf'},RUN:{e:'рџЏѓ',n:'RUN',c:'#37d67a'}};
+// РёРєРѕРЅРєР° СЃРѕР±С‹С‚РёСЏ: РІРµРєС‚РѕСЂ (РјСЏС‡/РїСЂС‹Р¶РѕРє) РµСЃР»Рё Р·Р°РґР°РЅ svg, РёРЅР°С‡Рµ СЌРјРѕРґР·Рё-СЃС‚Р°С‚СѓСЃ С‚РµРєСЃС‚РѕРј
 function svgIco(sym,color,size){ return `<svg class="ic" style="width:${size}px;height:${size}px;stroke:${color}"><use href="#${sym}"/></svg>`; }
 function evIcon(info,size){ return (info&&info.svg) ? svgIco(info.svg,info.c,size) : (info?info.e:''); }
 
@@ -15,7 +15,7 @@ let dev=null, ctrlCh=null, connected=false, streaming=false, detector=null;
 let prevState=null;
 let dCounts={KICK:0,JUMP:0};
 
-// запись
+// Р·Р°РїРёСЃСЊ
 let rec=null;              // {startMs, events:[], raw:{ax..}, samples}
 let recTimer=null, healthTimer=null, wakeLock=null;
 
@@ -23,11 +23,11 @@ let recTimer=null, healthTimer=null, wakeLock=null;
 let wantConnected=false, connecting=false, reconnectTimer=null, retry=0;
 $('connectBtn').onclick=()=>{ wantConnected ? userDisconnect() : connect(); };
 
-// первый коннект: выбор устройства из системного диалога
+// РїРµСЂРІС‹Р№ РєРѕРЅРЅРµРєС‚: РІС‹Р±РѕСЂ СѓСЃС‚СЂРѕР№СЃС‚РІР° РёР· СЃРёСЃС‚РµРјРЅРѕРіРѕ РґРёР°Р»РѕРіР°
 async function connect(){
   if(!navigator.bluetooth){ alert('Chrome on Android required (Web Bluetooth).'); return; }
   try{
-    setConn('searching…',false);
+    setConn('searchingвЂ¦',false);
     dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:[SERVICE]});
     dev.addEventListener('gattserverdisconnected',onDisc);
     wantConnected=true; retry=0;
@@ -35,12 +35,12 @@ async function connect(){
   }catch(e){ wantConnected=false; setConn('error',false); console.error(e); }
 }
 
-// (пере)подключение GATT к уже выбранному устройству — без повторного диалога
+// (РїРµСЂРµ)РїРѕРґРєР»СЋС‡РµРЅРёРµ GATT Рє СѓР¶Рµ РІС‹Р±СЂР°РЅРЅРѕРјСѓ СѓСЃС‚СЂРѕР№СЃС‚РІСѓ вЂ” Р±РµР· РїРѕРІС‚РѕСЂРЅРѕРіРѕ РґРёР°Р»РѕРіР°
 async function connectGatt(){
   if(connecting || !dev) return;
   connecting=true;
   try{
-    setConn(retry?`reconnecting… (${retry})`:'connecting…',false);
+    setConn(retry?`reconnectingвЂ¦ (${retry})`:'connectingвЂ¦',false);
     const srv=await dev.gatt.connect();
     const svc=await srv.getPrimaryService(SERVICE);
     const evc=await svc.getCharacteristic(EVENT);
@@ -52,12 +52,12 @@ async function connectGatt(){
     ctrlCh=await svc.getCharacteristic(CTRL);
     connected=true; retry=0; setConn('connected',true);
     $('connectBtn').textContent='Disconnect'; $('recBtn').disabled=false;
-    // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
+    // СЂР°СЃРїРѕР·РЅР°РІР°РЅРёРµ вЂ” РЅР° С‚РµР»РµС„РѕРЅРµ, РїРѕ Р»РёС‡РЅС‹Рј РїРѕСЂРѕРіР°Рј; РґР°С‚С‡РёРє РїСЂРѕСЃС‚Рѕ СЃС‚СЂРёРјРёС‚ СЃС‹СЂСЊС‘
     if(!detector) detector=new Detector({onEvent:onDetEvent, onState:onDetState});
-    requestWake();   // держим экран, пока подключены — иначе Web Bluetooth рвёт связь при гашении
-    // сначала синхронизируем офлайн-сессии с карты, потом включаем live-стрим
+    requestWake();   // РґРµСЂР¶РёРј СЌРєСЂР°РЅ, РїРѕРєР° РїРѕРґРєР»СЋС‡РµРЅС‹ вЂ” РёРЅР°С‡Рµ Web Bluetooth СЂРІС‘С‚ СЃРІСЏР·СЊ РїСЂРё РіР°С€РµРЅРёРё
+    // СЃРЅР°С‡Р°Р»Р° СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј РѕС„Р»Р°Р№РЅ-СЃРµСЃСЃРёРё СЃ РєР°СЂС‚С‹, РїРѕС‚РѕРј РІРєР»СЋС‡Р°РµРј live-СЃС‚СЂРёРј
     startSync();
-    // прочитать статус SD (отправлен при подключении)
+    // РїСЂРѕС‡РёС‚Р°С‚СЊ СЃС‚Р°С‚СѓСЃ SD (РѕС‚РїСЂР°РІР»РµРЅ РїСЂРё РїРѕРґРєР»СЋС‡РµРЅРёРё)
     const rd=async()=>{try{onEvent(new TextDecoder().decode(await evc.readValue()).trim());}catch(e){}};
     rd(); setTimeout(rd,400); setTimeout(rd,1200);
   }catch(e){
@@ -66,7 +66,7 @@ async function connectGatt(){
   }finally{ connecting=false; }
 }
 
-// разрыв соединения (само, не по кнопке) — держим запись и авто-переподключаемся
+// СЂР°Р·СЂС‹РІ СЃРѕРµРґРёРЅРµРЅРёСЏ (СЃР°РјРѕ, РЅРµ РїРѕ РєРЅРѕРїРєРµ) вЂ” РґРµСЂР¶РёРј Р·Р°РїРёСЃСЊ Рё Р°РІС‚Рѕ-РїРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРјСЃСЏ
 function onDisc(){
   connected=false; streaming=false; sync=null;
   const ss=$('syncStatus'); if(ss) ss.style.display='none';
@@ -83,10 +83,10 @@ function onDisc(){
 function scheduleReconnect(){
   clearTimeout(reconnectTimer);
   const delay=Math.min(1200*Math.pow(1.6,retry), 8000); retry++;
-  setConn(`reconnecting… (${retry})`,false);
+  setConn(`reconnectingвЂ¦ (${retry})`,false);
   reconnectTimer=setTimeout(()=>{ if(wantConnected) connectGatt(); }, delay);
 }
-// разрыв по кнопке пользователя — глушим авто-реконнект
+// СЂР°Р·СЂС‹РІ РїРѕ РєРЅРѕРїРєРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ вЂ” РіР»СѓС€РёРј Р°РІС‚Рѕ-СЂРµРєРѕРЅРЅРµРєС‚
 function userDisconnect(){
   wantConnected=false; clearTimeout(reconnectTimer); retry=0;
   releaseWake();
@@ -96,7 +96,7 @@ function userDisconnect(){
   setConn('disconnected',false);
   $('connectBtn').textContent='Connect sensor'; $('recBtn').disabled=true;
 }
-// wake lock: удержание экрана. Освобождается системой при уходе со вкладки — берём заново при возврате.
+// wake lock: СѓРґРµСЂР¶Р°РЅРёРµ СЌРєСЂР°РЅР°. РћСЃРІРѕР±РѕР¶РґР°РµС‚СЃСЏ СЃРёСЃС‚РµРјРѕР№ РїСЂРё СѓС…РѕРґРµ СЃРѕ РІРєР»Р°РґРєРё вЂ” Р±РµСЂС‘Рј Р·Р°РЅРѕРІРѕ РїСЂРё РІРѕР·РІСЂР°С‚Рµ.
 async function requestWake(){
   if(wakeLock) return;
   try{ if('wakeLock' in navigator && document.visibilityState==='visible'){ wakeLock=await navigator.wakeLock.request('screen'); } }catch(e){}
@@ -105,26 +105,26 @@ function releaseWake(){ if(wakeLock){ try{wakeLock.release();}catch(e){} wakeLoc
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible' && wantConnected){
     requestWake();
-    if(!connected && !connecting){ retry=0; connectGatt(); }   // экран вернулся — сразу переподключаемся
+    if(!connected && !connecting){ retry=0; connectGatt(); }   // СЌРєСЂР°РЅ РІРµСЂРЅСѓР»СЃСЏ вЂ” СЃСЂР°Р·Сѓ РїРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРјСЃСЏ
   }
 });
 
-// ---- текстовые сообщения датчика: только статус SD (движения ловит телефон) ----
+// ---- С‚РµРєСЃС‚РѕРІС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ РґР°С‚С‡РёРєР°: С‚РѕР»СЊРєРѕ СЃС‚Р°С‚СѓСЃ SD (РґРІРёР¶РµРЅРёСЏ Р»РѕРІРёС‚ С‚РµР»РµС„РѕРЅ) ----
 function onEvent(msg){
   if(msg.startsWith('SD')||msg.startsWith('NO SD')){ const el=$('sdText')||$('sdPill'); el.textContent=msg; return; }
   if(msg.startsWith('BAT')){                     // "BAT <volts> <percent>"
     const p=msg.split(/\s+/); const v=parseFloat(p[1]), pct=parseInt(p[2]);
     const el=$('batText'); const pill=$('batPill');
     if(el && !isNaN(pct)){
-      el.textContent = pct+'% · '+(isNaN(v)?'':v.toFixed(2)+'V');
+      el.textContent = pct+'% В· '+(isNaN(v)?'':v.toFixed(2)+'V');
       if(pill) pill.style.color = pct<=15 ? 'var(--impact)' : (pct<=40 ? 'var(--sprint)' : 'var(--run)');
     }
     return;
   }
-  if(msg.startsWith('SESSION ON')){ if(!rec) setRecUI(true); return; }   // на устройстве идёт запись
-  if(msg.startsWith('SESSION OFF')){ if(rec) setRecUI(false); return; }
+  if(msg.startsWith('SESSION ON')){ if(!rec){ rec={mode:'auto',startMs:Date.now()}; recUI(true); } return; }   // РЅР° СѓСЃС‚СЂРѕР№СЃС‚РІРµ РёРґС‘С‚ Р·Р°РїРёСЃСЊ
+  if(msg.startsWith('SESSION OFF')){ if(rec && rec.mode==='auto'){ rec=null; recUI(false); } return; }
 }
-// ---- события от детектора на телефоне (по личным порогам) ----
+// ---- СЃРѕР±С‹С‚РёСЏ РѕС‚ РґРµС‚РµРєС‚РѕСЂР° РЅР° С‚РµР»РµС„РѕРЅРµ (РїРѕ Р»РёС‡РЅС‹Рј РїРѕСЂРѕРіР°Рј) ----
 function onDetEvent(type,data){
   const info=EV[type]; if(!info) return;
   const msg = (type==='JUMP') ? `JUMP air=${Math.round(data.air||0)}ms h=${Math.round(data.h||0)}cm`
@@ -133,8 +133,8 @@ function onDetEvent(type,data){
   if(dCounts[type]!==undefined){ dCounts[type]++; if(rec)recCount(type); }
   refreshCounts(); addLive(info,msg);
   if(rec && rec.events) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g,air:data.air,h:data.h});
-  // после разового события (удар/прыжок) вернуть плашку к текущему состоянию,
-  // иначе "KICK" висит, пока не сменится зона (при беге состояние не меняется → onDetState молчит)
+  // РїРѕСЃР»Рµ СЂР°Р·РѕРІРѕРіРѕ СЃРѕР±С‹С‚РёСЏ (СѓРґР°СЂ/РїСЂС‹Р¶РѕРє) РІРµСЂРЅСѓС‚СЊ РїР»Р°С€РєСѓ Рє С‚РµРєСѓС‰РµРјСѓ СЃРѕСЃС‚РѕСЏРЅРёСЋ,
+  // РёРЅР°С‡Рµ "KICK" РІРёСЃРёС‚, РїРѕРєР° РЅРµ СЃРјРµРЅРёС‚СЃСЏ Р·РѕРЅР° (РїСЂРё Р±РµРіРµ СЃРѕСЃС‚РѕСЏРЅРёРµ РЅРµ РјРµРЅСЏРµС‚СЃСЏ в†’ onDetState РјРѕР»С‡РёС‚)
   clearTimeout(heroRevertTimer);
   heroRevertTimer=setTimeout(revertHeroToState, 800);
 }
@@ -144,7 +144,7 @@ function revertHeroToState(){
 }
 function onDetState(state,act){
   const info=EV[state]; if(!info) return;
-  clearTimeout(heroRevertTimer);   // живое состояние важнее «висящего» события
+  clearTimeout(heroRevertTimer);   // Р¶РёРІРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ РІР°Р¶РЅРµРµ В«РІРёСЃСЏС‰РµРіРѕВ» СЃРѕР±С‹С‚РёСЏ
   hero(info,`${state} a=${act.toFixed(2)}g`);
   prevState=state;
   if(rec && rec.events) rec.events.push({t:Date.now()-rec.startMs,type:state,a:act});
@@ -161,18 +161,18 @@ function recCount(type){
   if(type==='JUMP')$('sJump').textContent=+($('sJump').textContent)+1;
 }
 
-// ---- сырые данные (бинарь) ----
+// ---- СЃС‹СЂС‹Рµ РґР°РЅРЅС‹Рµ (Р±РёРЅР°СЂСЊ) ----
 function onData(dv){
-  if(dv.getUint8(0)!==0x52){ onSyncPacket(dv); return; }   // 'R' = live-сырьё; иначе пакет файл-синка
+  if(dv.getUint8(0)!==0x52){ onSyncPacket(dv); return; }   // 'R' = live-СЃС‹СЂСЊС‘; РёРЅР°С‡Рµ РїР°РєРµС‚ С„Р°Р№Р»-СЃРёРЅРєР°
   const n=Math.floor((dv.byteLength-3)/12);
   for(let i=0;i<n;i++){
     const o=3+i*12;
     const ax=dv.getInt16(o,true)/1000, ay=dv.getInt16(o+2,true)/1000, az=dv.getInt16(o+4,true)/1000;
     const gx=dv.getInt16(o+6,true)/10,  gy=dv.getInt16(o+8,true)/10,  gz=dv.getInt16(o+10,true)/10;
-    if(detector) detector.push(ax,ay,az,gx,gy,gz);     // распознавание по личным порогам
+    if(detector) detector.push(ax,ay,az,gx,gy,gz);     // СЂР°СЃРїРѕР·РЅР°РІР°РЅРёРµ РїРѕ Р»РёС‡РЅС‹Рј РїРѕСЂРѕРіР°Рј
     if(rec && rec.raw){ rec.raw.ax.push(ax);rec.raw.ay.push(ay);rec.raw.az.push(az);rec.raw.gx.push(gx);rec.raw.gy.push(gy);rec.raw.gz.push(gz); }
     if(calib.recording){ calibSample(ax,ay,az,gx,gy,gz); }
-    // отладка
+    // РѕС‚Р»Р°РґРєР°
     const aM=Math.hypot(ax,ay,az), gM=Math.hypot(gx,gy,gz);
     dbg.n++; dbg.lastA=aM; if(aM>dbg.peakA)dbg.peakA=aM; if(gM>dbg.peakG)dbg.peakG=gM;
     dbg.sumDyn+=Math.abs(aM-1); dbg.cntDyn++;
@@ -182,50 +182,75 @@ function onData(dv){
 let dbg={n:0,peakA:0,peakG:0,lastA:1,sumDyn:0,cntDyn:0};
 setInterval(()=>{
   const el=$('dbg'); if(!el)return;
-  if(!connected){ el.textContent='no data — connect sensor'; return; }
+  if(!connected){ el.textContent='no data вЂ” connect sensor'; return; }
   let t={}; try{ t=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
-  // показываем РЕАЛЬНЫЙ действующий порог (как его видит детектор): manual → сохранённый → дефолт 8
+  // РїРѕРєР°Р·С‹РІР°РµРј Р Р•РђР›Р¬РќР«Р™ РґРµР№СЃС‚РІСѓСЋС‰РёР№ РїРѕСЂРѕРі (РєР°Рє РµРіРѕ РІРёРґРёС‚ РґРµС‚РµРєС‚РѕСЂ): manual в†’ СЃРѕС…СЂР°РЅС‘РЅРЅС‹Р№ в†’ РґРµС„РѕР»С‚ 8
   const hasManual = t.kickManual!=null;
   const kickThr = hasManual ? t.kickManual : (t.kickAcc!=null ? t.kickAcc : 8);
   const kickTag = hasManual ? ' (manual)' : (t.kickAcc!=null ? '' : ' (default)');
   const act=dbg.cntDyn?dbg.sumDyn/dbg.cntDyn:0;
-  el.innerHTML=`stream ${dbg.n*2} Hz · a=${dbg.lastA.toFixed(1)}g<br>`+
-    `<b style="color:#ff7a3c">PEAK acc=${dbg.peakA.toFixed(1)}g</b> · peak gyro=${Math.round(dbg.peakG)}<br>`+
-    `act=${act.toFixed(2)} · state ${prevState||'—'}<br>`+
-    `kick thr &gt;${kickThr}g${kickTag} · run thr &gt;${t.zones?t.zones.walk.toFixed(2):'—'}`;
+  el.innerHTML=`stream ${dbg.n*2} Hz В· a=${dbg.lastA.toFixed(1)}g<br>`+
+    `<b style="color:#ff7a3c">PEAK acc=${dbg.peakA.toFixed(1)}g</b> В· peak gyro=${Math.round(dbg.peakG)}<br>`+
+    `act=${act.toFixed(2)} В· state ${prevState||'вЂ”'}<br>`+
+    `kick thr &gt;${kickThr}g${kickTag} В· run thr &gt;${t.zones?t.zones.walk.toFixed(2):'вЂ”'}`;
   dbg.n=0;dbg.peakA=0;dbg.peakG=0;dbg.sumDyn=0;dbg.cntDyn=0;
 },500);
 
-// ================= ЗАПИСЬ =================
+// ================= Р—РђРџРРЎР¬ =================
 $('recBtn').onclick=()=>{ rec?stopRec(false):startRec(); };
-// «Старт тренировки» = автономная запись на карту устройства (не зависит от BLE)
+// ---- СЂРµР¶РёРјС‹ Р·Р°РїРёСЃРё: 'auto' (СѓСЃС‚СЂРѕР№СЃС‚РІРѕ РїРёС€РµС‚ РЅР° РєР°СЂС‚Сѓ) / 'live' (С‚РµР»РµС„РѕРЅ РєРѕРїРёС‚ РїРѕС‚РѕРє) ----
+let recMode = localStorage.getItem('fbl_recmode') || 'auto';
+function setMode(m){
+  if(rec) return;                                  // РЅРµ РјРµРЅСЏС‚СЊ РІРѕ РІСЂРµРјСЏ Р·Р°РїРёСЃРё
+  recMode=m; localStorage.setItem('fbl_recmode',m);
+  document.querySelectorAll('.modeBtn').forEach(b=>{ const on=b.dataset.mode===m;
+    b.style.borderColor=on?'var(--accent)':'var(--line)'; b.style.background=on?'#12233d':'var(--card2)'; });
+  const h=$('modeHint'); if(h) h.textContent = m==='live'
+    ? 'Live: С‚РµР»РµС„РѕРЅ РєРѕРїРёС‚ РїРѕС‚РѕРє, СЃРµСЃСЃРёСЏ СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ СЃСЂР°Р·Сѓ РїРѕ Stop. Р”РµСЂР¶Рё РїСЂРёР»РѕР¶РµРЅРёРµ РѕС‚РєСЂС‹С‚С‹Рј.'
+    : 'Autonomous: СѓСЃС‚СЂРѕР№СЃС‚РІРѕ РїРёС€РµС‚ РЅР° СЃРІРѕСЋ РєР°СЂС‚Сѓ, С‚РµР»РµС„РѕРЅ РјРѕР¶РЅРѕ СѓР±СЂР°С‚СЊ. РџРѕРґС‚СЏРЅРµС‚СЃСЏ РїРѕ Stop.';
+}
+
 async function startRec(){
   if(!connected || !ctrlCh) return;
-  try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 1')); }catch(e){ return; }
-  setRecUI(true);
+  if(recMode==='live'){
+    rec={mode:'live', startMs:Date.now(), raw:{ax:[],ay:[],az:[],gx:[],gy:[],gz:[]}, events:[], samples:0};
+    try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
+  } else {
+    try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 1')); }catch(e){ return; }
+    rec={mode:'auto', startMs:Date.now()};
+  }
+  recUI(true);
 }
 async function stopRec(silent){
-  const wasRec = !!rec;
-  setRecUI(false);
-  if(ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 0')); }catch(e){} }
-  // дать датчику закрыть файл, затем подтянуть завершённую сессию
-  if(wasRec && !silent && connected){ setTimeout(()=>startSync(), 900); }
+  const r=rec; rec=null; recUI(false);
+  if(!r) return;
+  if(r.mode==='live'){                             // СЃРѕС…СЂР°РЅСЏРµРј СЃРµСЃСЃРёСЋ РёР· С‚РµР»РµС„РѕРЅР° СЃСЂР°Р·Сѓ
+    if(r.samples>0 || r.events.length>0){
+      const sess={ id:Date.now(), date:new Date().toISOString(), type:$('sType').value, note:$('sNote').value,
+        durationMs:Date.now()-r.startMs, events:r.events, raw:r.raw, samples:r.samples };
+      await dbAdd(sess); if(!silent){ renderHistory(); openAnalytics(sess.id); }
+    }
+  } else {                                          // Р°РІС‚РѕРЅРѕРјРєР°: СЃС‚РѕРї РЅР° СѓСЃС‚СЂРѕР№СЃС‚РІРµ + СЃРёРЅРє
+    if(ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 0')); }catch(e){} }
+    if(!silent && connected){ setTimeout(()=>startSync(), 900); }
+  }
 }
-function setRecUI(on){
+function recUI(on){
   if(on){
-    rec={startMs:Date.now()};                 // лёгкий флаг «идёт запись» (данные — на устройстве)
     dCounts={KICK:0,JUMP:0}; $('sKick').textContent='0'; $('sJump').textContent='0';
     requestWake();
-    $('recBtn').textContent='■ Stop training'; $('recState').textContent='● recording on device'; $('recState').style.color='#ff4d6d';
-    $('recHealth').innerHTML='можно заблокировать телефон — запись идёт на устройстве';
+    $('recBtn').textContent='в–  Stop training'; $('recState').textContent='в—Џ recording'; $('recState').style.color='#ff4d6d';
+    $('recHealth').innerHTML = (rec&&rec.mode==='live') ? 'live-Р·Р°РїРёСЃСЊ РІ С‚РµР»РµС„РѕРЅ вЂ” РґРµСЂР¶Рё РїСЂРёР»РѕР¶РµРЅРёРµ РѕС‚РєСЂС‹С‚С‹Рј' : 'РјРѕР¶РЅРѕ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ С‚РµР»РµС„РѕРЅ вЂ” Р·Р°РїРёСЃСЊ РёРґС‘С‚ РЅР° СѓСЃС‚СЂРѕР№СЃС‚РІРµ';
     clearInterval(recTimer);
     recTimer=setInterval(()=>{ if(rec){ const s=Math.floor((Date.now()-rec.startMs)/1000); $('recTime').textContent=mmss(s); } },500);
   } else {
-    rec=null; clearInterval(recTimer);
-    $('recBtn').textContent='● Start training'; $('recState').textContent='not recording'; $('recState').style.color='';
+    clearInterval(recTimer);
+    $('recBtn').textContent='в—Џ Start training'; $('recState').textContent='not recording'; $('recState').style.color='';
     $('recTime').textContent='00:00'; $('recHealth').innerHTML='';
   }
 }
+document.querySelectorAll('.modeBtn').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+setMode(recMode);
 
 // ================= IndexedDB =================
 let _db=null;
@@ -237,24 +262,24 @@ async function dbAll(){ const d=await db(); return new Promise(r=>{ const rq=d.t
 async function dbGet(id){ const d=await db(); return new Promise(r=>{ const rq=d.transaction('sessions').objectStore('sessions').get(id); rq.onsuccess=()=>r(rq.result); }); }
 async function dbDel(id){ const d=await db(); return new Promise(r=>{ d.transaction('sessions','readwrite').objectStore('sessions').delete(id).onsuccess=r; }); }
 
-// ================= OFFLINE-СИНХРОНИЗАЦИЯ (SES*.BIN сырьё с карты) =================
+// ================= OFFLINE-РЎРРќРҐР РћРќРР—РђР¦РРЇ (SES*.BIN СЃС‹СЂСЊС‘ СЃ РєР°СЂС‚С‹) =================
 let sync=null, syncMsgTimer=null;
 function syncedSet(){ try{ return new Set(JSON.parse(localStorage.getItem('fbl_synced_ses')||'[]')); }catch(e){ return new Set(); } }
 function markSynced(name){ const s=syncedSet(); s.add(name); localStorage.setItem('fbl_synced_ses', JSON.stringify([...s])); }
-function setSync(msg, hideAfter){ const el=$('syncStatus'); if(!el)return; el.textContent='🔄 '+msg; el.style.display='block';
+function setSync(msg, hideAfter){ const el=$('syncStatus'); if(!el)return; el.textContent='рџ”„ '+msg; el.style.display='block';
   clearTimeout(syncMsgTimer); if(hideAfter) syncMsgTimer=setTimeout(()=>{ el.style.display='none'; }, hideAfter); }
 
 async function startSync(){
   if(!ctrlCh || sync){ enableLive(); return; }
   sync={ files:[], queue:[], cur:null, done:0 };
-  setSync('checking device…');
-  try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 0')); streaming=false; }catch(e){}  // глушим live-стрим
+  setSync('checking deviceвЂ¦');
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 0')); streaming=false; }catch(e){}  // РіР»СѓС€РёРј live-СЃС‚СЂРёРј
   try{ await ctrlCh.writeValue(new TextEncoder().encode('LIST')); }catch(e){ finishSync(); }
 }
 function onSyncPacket(dv){
   if(!sync) return;
   const type=String.fromCharCode(dv.getUint8(0));
-  if(type==='D'){                                   // бинарный кусок файла
+  if(type==='D'){                                   // Р±РёРЅР°СЂРЅС‹Р№ РєСѓСЃРѕРє С„Р°Р№Р»Р°
     if(sync.cur){ const b=new Uint8Array(dv.buffer.slice(dv.byteOffset+1, dv.byteOffset+dv.byteLength));
       sync.cur.parts.push(b); sync.cur.recv+=b.length;
       if(sync.cur.size) setSync(`downloading ${sync.cur.name}: ${Math.round(100*sync.cur.recv/sync.cur.size)}%`); }
@@ -275,8 +300,8 @@ function onListDone(){
 }
 async function nextInQueue(){
   const f=sync.queue.shift();
-  if(!f){ setSync(`✓ synced ${sync.done} session(s)`, 4000); finishSync(); return; }
-  setSync(`downloading ${f.name}…`);
+  if(!f){ setSync(`вњ“ synced ${sync.done} session(s)`, 4000); finishSync(); return; }
+  setSync(`downloading ${f.name}вЂ¦`);
   try{ await ctrlCh.writeValue(new TextEncoder().encode('GET '+f.name)); }catch(e){ finishSync(); }
 }
 async function onFileDone(){
@@ -286,12 +311,12 @@ async function onFileDone(){
       const buf=new Uint8Array(await new Blob(c.parts).arrayBuffer());
       const sess=sessionFromRaw(c.name, buf);
       if(sess){ await dbAdd(sess); markSynced(c.name); sync.done++; renderHistory(); }
-      else markSynced(c.name);   // мусорный/пустой файл — не тянем повторно
+      else markSynced(c.name);   // РјСѓСЃРѕСЂРЅС‹Р№/РїСѓСЃС‚РѕР№ С„Р°Р№Р» вЂ” РЅРµ С‚СЏРЅРµРј РїРѕРІС‚РѕСЂРЅРѕ
     }catch(e){ console.error('parse fail',e); }
   }
   nextInQueue();
 }
-// Собираем объект сессии из сырья + прогон детектора по личным порогам
+// РЎРѕР±РёСЂР°РµРј РѕР±СЉРµРєС‚ СЃРµСЃСЃРёРё РёР· СЃС‹СЂСЊСЏ + РїСЂРѕРіРѕРЅ РґРµС‚РµРєС‚РѕСЂР° РїРѕ Р»РёС‡РЅС‹Рј РїРѕСЂРѕРіР°Рј
 function sessionFromRaw(name, buf){
   const rec=Math.floor(buf.length/12); if(rec<50) return null;
   const dv=new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -308,10 +333,10 @@ function sessionFromRaw(name, buf){
            type:'Offline', note:name, durationMs:rec*10, events, raw, samples:rec, offline:true };
 }
 function finishSync(){ sync=null; enableLive(); }
-// включаем live-стрим (после завершения синка)
+// РІРєР»СЋС‡Р°РµРј live-СЃС‚СЂРёРј (РїРѕСЃР»Рµ Р·Р°РІРµСЂС€РµРЅРёСЏ СЃРёРЅРєР°)
 async function enableLive(){ if(connected && ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){} } }
 
-// ================= ИСТОРИЯ =================
+// ================= РРЎРўРћР РРЇ =================
 async function renderHistory(){
   const list=await dbAll(); list.sort((a,b)=>b.id-a.id);
   if(!list.length){ $('histList').innerHTML='<div class="muted">no recorded sessions yet</div>'; return; }
@@ -319,14 +344,14 @@ async function renderHistory(){
     const d=new Date(s.id); const dur=mmss(Math.floor(s.durationMs/1000));
     const k=s.events.filter(e=>e.type==='KICK').length, j=s.events.filter(e=>e.type==='JUMP').length;
     return `<div class="row" onclick="openAnalytics(${s.id})" style="cursor:pointer">
-      <span class="ico">📊</span>
-      <span style="flex:1"><b>${s.type}</b> · ${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
-        <div class="muted">${dur} · ${svgIco('i-ball','var(--kick)',12)}${k} ${svgIco('i-jump','var(--jump)',12)}${j} · ${s.samples} samples</div></span>
-      <span class="muted">›</span></div>`;
+      <span class="ico">рџ“Љ</span>
+      <span style="flex:1"><b>${s.type}</b> В· ${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
+        <div class="muted">${dur} В· ${svgIco('i-ball','var(--kick)',12)}${k} ${svgIco('i-jump','var(--jump)',12)}${j} В· ${s.samples} samples</div></span>
+      <span class="muted">вЂє</span></div>`;
   }).join('');
 }
 
-// ================= АНАЛИТИКА =================
+// ================= РђРќРђР›РРўРРљРђ =================
 async function openAnalytics(id){
   const s=await dbGet(id); if(!s) return;
   const prof=loadProfile();
@@ -334,8 +359,8 @@ async function openAnalytics(id){
   const d=new Date(s.id);
   $('analytics').innerHTML=`
     <div class="card">
-      <h2>${s.type} · ${d.toLocaleDateString('en-GB')}</h2>
-      <div class="muted">${d.toLocaleTimeString('en-GB')} · duration ${mmss(Math.floor(m.durS))}${s.note?' · '+s.note:''}</div>
+      <h2>${s.type} В· ${d.toLocaleDateString('en-GB')}</h2>
+      <div class="muted">${d.toLocaleTimeString('en-GB')} В· duration ${mmss(Math.floor(m.durS))}${s.note?' В· '+s.note:''}</div>
     </div>
     <div class="grid2">
       <div class="tile"><div class="n" style="color:var(--kick)">${m.kicks}</div><div class="l"><svg class="ic" style="stroke:var(--kick)"><use href="#i-ball"/></svg>kicks</div></div>
@@ -354,30 +379,30 @@ async function openAnalytics(id){
     <div class="card"><h3 style="margin-bottom:10px">Session dynamics</h3>${svgTimeline(m.timeline)}</div>
     <div class="card"><h3>Kicks</h3>
       <div class="grid2" style="margin:10px 0">
-        <div class="tile"><div class="n" style="color:var(--kick)">${m.maxKickKmh?m.maxKickKmh.toFixed(0):'—'}</div><div class="l">max ball speed, km/h*</div></div>
+        <div class="tile"><div class="n" style="color:var(--kick)">${m.maxKickKmh?m.maxKickKmh.toFixed(0):'вЂ”'}</div><div class="l">max ball speed, km/h*</div></div>
         <div class="tile"><div class="n">${m.kicks}</div><div class="l">total kicks</div></div>
       </div>
       ${svgBars(m.kicksAn.map(k=>k.ball), 'var(--kick)', ' km/h')}
-      <div class="muted" style="margin-top:6px">* estimated from foot rotation (ω·r), ±10-15%</div>
+      <div class="muted" style="margin-top:6px">* estimated from foot rotation (П‰В·r), В±10-15%</div>
     </div>
     <div class="card"><h3>Jumps and running</h3>
       <div class="grid2" style="margin-top:10px">
-        <div class="tile"><div class="n" style="color:var(--jump)">${m.maxJumpCm?m.maxJumpCm.toFixed(0):'—'}</div><div class="l">max height, cm</div></div>
+        <div class="tile"><div class="n" style="color:var(--jump)">${m.maxJumpCm?m.maxJumpCm.toFixed(0):'вЂ”'}</div><div class="l">max height, cm</div></div>
         <div class="tile"><div class="n">${(m.distM/1000).toFixed(2)}</div><div class="l">distance, km*</div></div>
         <div class="tile"><div class="n">${m.avgKmh.toFixed(1)}</div><div class="l">avg speed, km/h*</div></div>
-        <div class="tile"><div class="n">${m.gctMs||'—'}</div><div class="l">foot contact, ms</div></div>
+        <div class="tile"><div class="n">${m.gctMs||'вЂ”'}</div><div class="l">foot contact, ms</div></div>
       </div>
       <div class="muted" style="margin-top:6px">* approximate (from cadence and stride)</div>
     </div>
     <div class="card">
-      <button class="big ghost" onclick="exportCSV(${s.id})">⬇ Export CSV (for ML)</button>
-      <button class="big ghost" style="margin-top:10px" onclick="delSession(${s.id})">🗑 Delete session</button>
+      <button class="big ghost" onclick="exportCSV(${s.id})">в¬‡ Export CSV (for ML)</button>
+      <button class="big ghost" style="margin-top:10px" onclick="delSession(${s.id})">рџ—‘ Delete session</button>
     </div>`;
   showTab('analytics');
 }
 async function delSession(id){ if(confirm('Delete session?')){ await dbDel(id); renderHistory(); showTab('history'); } }
 
-// экспорт: сырьё + события в CSV
+// СЌРєСЃРїРѕСЂС‚: СЃС‹СЂСЊС‘ + СЃРѕР±С‹С‚РёСЏ РІ CSV
 async function exportCSV(id){
   const s=await dbGet(id); if(!s) return;
   let csv='# events\nt_ms,type,a_g,gyro_dps,air_ms,h_cm\n';
@@ -388,8 +413,8 @@ async function exportCSV(id){
   const a=document.createElement('a'); a.href=url; a.download='session_'+id+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
-// ================= КАЛИБРОВКА =================
-const CALIB_LABELS=[['IDLE','🧍 Idle'],['WALK','🚶 Walk'],['RUN','🏃 Run'],['KICK','⚽ Kick'],['JUMP','🦘 Jump']];
+// ================= РљРђР›РР‘Р РћР’РљРђ =================
+const CALIB_LABELS=[['IDLE','рџ§Ќ Idle'],['WALK','рџљ¶ Walk'],['RUN','рџЏѓ Run'],['KICK','вљЅ Kick'],['JUMP','рџ¦ Jump']];
 let calib={recording:null, startMs:0, timer:null, data:{}};
 
 function buildCalib(){
@@ -399,7 +424,7 @@ function buildCalib(){
     return `
     <div class="tile" style="text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px">
       <div style="flex:1"><b>${n}</b><div class="muted" id="cr_${k}" style="font-size:12px;margin-top:2px">not recorded</div></div>
-      <button class="ghost" id="cb_${k}" onclick="calibToggle('${k}')" style="padding:9px 14px">${has?'↻ Re-record':'● Record'}</button>
+      <button class="ghost" id="cb_${k}" onclick="calibToggle('${k}')" style="padding:9px 14px">${has?'в†» Re-record':'в—Џ Record'}</button>
     </div>`;
   }).join('');
   CALIB_LABELS.forEach(([k])=>{ if(calib.data[k]&&calib.data[k].act&&calib.data[k].act.length) updateCalibRow(k,true); });
@@ -413,16 +438,16 @@ function calibToggle(label){
   if(calib.recording) calibStop();
   calib.recording=label; calib.startMs=Date.now();
   calib.data[label]={act:[],acc:[],gyro:[]};
-  const b=$('cb_'+label); b.textContent='■ Stop'; b.style.background='var(--impact)'; b.style.color='#fff';
+  const b=$('cb_'+label); b.textContent='в–  Stop'; b.style.background='var(--impact)'; b.style.color='#fff';
   calib.timer=setInterval(()=>updateCalibRow(label,false),300);
   updateCalibRow(label,false);
 }
 function calibStop(){
   const label=calib.recording; if(!label)return;
   clearInterval(calib.timer); calib.timer=null; calib.recording=null;
-  const b=$('cb_'+label); if(b){ b.textContent='↻ Re-record'; b.style.background=''; b.style.color=''; }
+  const b=$('cb_'+label); if(b){ b.textContent='в†» Re-record'; b.style.background=''; b.style.color=''; }
   updateCalibRow(label,true);
-  saveCalibData();   // сразу сохраняем — данные не потеряются
+  saveCalibData();   // СЃСЂР°Р·Сѓ СЃРѕС…СЂР°РЅСЏРµРј вЂ” РґР°РЅРЅС‹Рµ РЅРµ РїРѕС‚РµСЂСЏСЋС‚СЃСЏ
 }
 function calibSample(ax,ay,az,gx,gy,gz){
   const d=calib.data[calib.recording]; if(!d)return;
@@ -434,19 +459,19 @@ function updateCalibRow(label,done){
   const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0, max=a=>a.length?Math.max(...a):0;
   if(!done && calib.recording===label){
     const dur=((Date.now()-calib.startMs)/1000).toFixed(0);
-    el.innerHTML=`<span style="color:#ff4d6d">● recording ${dur}s · ${d.act.length} samples</span>`;
+    el.innerHTML=`<span style="color:#ff4d6d">в—Џ recording ${dur}s В· ${d.act.length} samples</span>`;
   } else {
-    el.innerHTML=`✓ ${d.act.length} samples · activity ${mean(d.act).toFixed(2)} · peak ${max(d.acc).toFixed(1)}g · gyro ${Math.round(max(d.gyro))}°/s`;
+    el.innerHTML=`вњ“ ${d.act.length} samples В· activity ${mean(d.act).toFixed(2)} В· peak ${max(d.acc).toFixed(1)}g В· gyro ${Math.round(max(d.gyro))}В°/s`;
   }
 }
 function showSavedCalib(){
   let s=null; try{ s=JSON.parse(localStorage.getItem('fbl_calib')||'null'); }catch(e){}
   if(s&&s.zones){ const d=new Date(s.ts);
-    $('calibResult').innerHTML=`✅ <b>Saved</b> ${d.toLocaleString('en-GB')} · kick&gt;${s.kickAcc||'—'}g`;
+    $('calibResult').innerHTML=`вњ… <b>Saved</b> ${d.toLocaleString('en-GB')} В· kick&gt;${s.kickAcc||'вЂ”'}g`;
     renderCalibSummary(calib.data, s);
   } else { $('calibResult').innerHTML='<span class="muted">do the movements and tap "Calculate"</span>'; }
 }
-// вычисление порогов из записанных движений (без спринта)
+// РІС‹С‡РёСЃР»РµРЅРёРµ РїРѕСЂРѕРіРѕРІ РёР· Р·Р°РїРёСЃР°РЅРЅС‹С… РґРІРёР¶РµРЅРёР№ (Р±РµР· СЃРїСЂРёРЅС‚Р°)
 function computeThresholds(D){
   const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
   const maxA=a=>a&&a.length?Math.max(...a):null;
@@ -454,12 +479,12 @@ function computeThresholds(D){
   const idle=mean(D.IDLE&&D.IDLE.act), walk=mean(D.WALK&&D.WALK.act), run=mean(D.RUN&&D.RUN.act);
   if(run==null&&walk==null) return null;
   const zones={ idle: mid(idle,walk)??0.086, walk: mid(walk,run)??0.379, run: (run!=null? run*1.5 : 0.9) };
-  // порог удара — у самого пика удара (касание мяча), но гарантированно выше бегового пика.
-  // раньше брали середину (run+kick)/2 → порог падал вдвое ниже реального удара. Спринт НЕ учитываем (он убран).
+  // РїРѕСЂРѕРі СѓРґР°СЂР° вЂ” Сѓ СЃР°РјРѕРіРѕ РїРёРєР° СѓРґР°СЂР° (РєР°СЃР°РЅРёРµ РјСЏС‡Р°), РЅРѕ РіР°СЂР°РЅС‚РёСЂРѕРІР°РЅРЅРѕ РІС‹С€Рµ Р±РµРіРѕРІРѕРіРѕ РїРёРєР°.
+  // СЂР°РЅСЊС€Рµ Р±СЂР°Р»Рё СЃРµСЂРµРґРёРЅСѓ (run+kick)/2 в†’ РїРѕСЂРѕРі РїР°РґР°Р» РІРґРІРѕРµ РЅРёР¶Рµ СЂРµР°Р»СЊРЅРѕРіРѕ СѓРґР°СЂР°. РЎРїСЂРёРЅС‚ РќР• СѓС‡РёС‚С‹РІР°РµРј (РѕРЅ СѓР±СЂР°РЅ).
   const runAccMax  = maxA(D.RUN&&D.RUN.acc)||0;
   const kickAccMax = maxA(D.KICK&&D.KICK.acc)||0;
   let kickAcc;
-  if(kickAccMax>runAccMax && runAccMax>0){ kickAcc = +(Math.max(runAccMax*1.15, kickAccMax*0.85)).toFixed(1); } // у удара, но выше бега
+  if(kickAccMax>runAccMax && runAccMax>0){ kickAcc = +(Math.max(runAccMax*1.15, kickAccMax*0.85)).toFixed(1); } // Сѓ СѓРґР°СЂР°, РЅРѕ РІС‹С€Рµ Р±РµРіР°
   else if(runAccMax>0){ kickAcc = +(runAccMax*1.25).toFixed(1); }
   else { kickAcc = 6; }
   return {zones, kickAcc, runAccMax, kickAccMax};
@@ -470,28 +495,28 @@ function calibCalc(){
   if(!t){ $('calibResult').innerHTML='<span style="color:var(--sprint)">record at least Walk and Run</span>'; return; }
   let prev={}; try{prev=JSON.parse(localStorage.getItem('fbl_calib')||'{}');}catch(e){}
   const saved={zones:t.zones, kickAcc:t.kickAcc, ts:Date.now()};
-  if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // ручной override не затираем
+  if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // СЂСѓС‡РЅРѕР№ override РЅРµ Р·Р°С‚РёСЂР°РµРј
   localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
   saveCalibData();
   if(detector) detector.reloadThresholds();
-  $('calibResult').innerHTML='<span style="color:var(--run)">✓ Saved permanently and applied — to the home screen and analytics.</span>';
+  $('calibResult').innerHTML='<span style="color:var(--run)">вњ“ Saved permanently and applied вЂ” to the home screen and analytics.</span>';
   renderCalibSummary(calib.data, saved);
   loadKickManual();
 }
 function saveCalibData(){ try{ localStorage.setItem('fbl_calibdata', JSON.stringify(calib.data)); }catch(e){} }
 function loadCalibData(){ try{ const d=JSON.parse(localStorage.getItem('fbl_calibdata')||'null'); if(d)calib.data=d; }catch(e){} }
-// пересчитать пороги из уже записанных данных по НОВОЙ формуле (без перезаписи движений)
+// РїРµСЂРµСЃС‡РёС‚Р°С‚СЊ РїРѕСЂРѕРіРё РёР· СѓР¶Рµ Р·Р°РїРёСЃР°РЅРЅС‹С… РґР°РЅРЅС‹С… РїРѕ РќРћР’РћР™ С„РѕСЂРјСѓР»Рµ (Р±РµР· РїРµСЂРµР·Р°РїРёСЃРё РґРІРёР¶РµРЅРёР№)
 function applyCalibFromData(){
   loadCalibData();
   const t=computeThresholds(calib.data);
   if(t){ let prev={}; try{prev=JSON.parse(localStorage.getItem('fbl_calib')||'{}');}catch(e){}
     localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
     const saved={zones:t.zones,kickAcc:t.kickAcc,ts:prev.ts||Date.now()};
-    if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // ручной override не затираем
+    if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // СЂСѓС‡РЅРѕР№ override РЅРµ Р·Р°С‚РёСЂР°РµРј
     localStorage.setItem('fbl_calib',JSON.stringify(saved)); }
 }
-// ---- ручной порог удара (override): перебивает автоформулу, не затирается пересчётом ----
+// ---- СЂСѓС‡РЅРѕР№ РїРѕСЂРѕРі СѓРґР°СЂР° (override): РїРµСЂРµР±РёРІР°РµС‚ Р°РІС‚РѕС„РѕСЂРјСѓР»Сѓ, РЅРµ Р·Р°С‚РёСЂР°РµС‚СЃСЏ РїРµСЂРµСЃС‡С‘С‚РѕРј ----
 function loadKickManual(){
   let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
   if($('kickManual')) $('kickManual').value = (c.kickManual!=null ? c.kickManual : '');
@@ -499,8 +524,8 @@ function loadKickManual(){
 }
 function updateKickManualMsg(c){
   const el=$('kickManualMsg'); if(!el)return;
-  if(c.kickManual!=null) el.innerHTML=`<span style="color:var(--run)">Manual: kicks counted from <b>${c.kickManual}g</b> (overrides auto ${c.kickAcc!=null?c.kickAcc+'g':'—'})</span>`;
-  else el.innerHTML=`Auto: kicks counted from <b>${c.kickAcc!=null?c.kickAcc+'g':'—'}</b>`;
+  if(c.kickManual!=null) el.innerHTML=`<span style="color:var(--run)">Manual: kicks counted from <b>${c.kickManual}g</b> (overrides auto ${c.kickAcc!=null?c.kickAcc+'g':'вЂ”'})</span>`;
+  else el.innerHTML=`Auto: kicks counted from <b>${c.kickAcc!=null?c.kickAcc+'g':'вЂ”'}</b>`;
 }
 function applyKickManual(){
   let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
@@ -522,21 +547,21 @@ function renderCalibSummary(D, saved){
       <tr class="muted"><td style="padding:5px 6px">movement</td><td style="padding:5px 6px">samples</td><td style="padding:5px 6px">activity</td><td style="padding:5px 6px">peak acc</td><td style="padding:5px 6px">gyro</td></tr>
       ${rows}</table></div>
     <div style="margin-top:12px;font-size:14px"><b>Thresholds (applied):</b><br>
-      zones: idle&lt;${saved.zones.idle.toFixed(3)} · walk&lt;${saved.zones.walk.toFixed(3)} · run&lt;${saved.zones.run.toFixed(3)}<br>
+      zones: idle&lt;${saved.zones.idle.toFixed(3)} В· walk&lt;${saved.zones.walk.toFixed(3)} В· run&lt;${saved.zones.run.toFixed(3)}<br>
       kick: acceleration&gt;${saved.kickManual!=null?saved.kickManual+'g (manual)':saved.kickAcc+'g'}</div>
-    <button class="big ghost" style="margin-top:14px" onclick="calibReset()">↻ Restart calibration</button>`;
+    <button class="big ghost" style="margin-top:14px" onclick="calibReset()">в†» Restart calibration</button>`;
   $('calibSummaryCard').style.display='block';
 }
 function calibReset(){ if(calib.recording)calibStop(); calib.data={}; $('calibSummaryCard').style.display='none'; buildCalib(); $('calibResult').innerHTML='<span class="muted">do the movements and tap "Calculate"</span>'; }
 $('calibCalc').onclick=calibCalc;
 $('kickManualApply').onclick=applyKickManual;
 
-// ================= ПРОФИЛЬ =================
+// ================= РџР РћР¤РР›Р¬ =================
 function loadProfile(){ try{return JSON.parse(localStorage.getItem('fbl_profile')||'{}');}catch(e){return {};} }
 function fillProfile(){ const p=loadProfile(); $('pName').value=p.name||''; $('pFoot').value=p.foot||'Right'; $('pHeight').value=p.height||''; $('pFootLen').value=p.footLen||''; }
 $('saveProfile').onclick=()=>{
   const p={name:$('pName').value,foot:$('pFoot').value,height:$('pHeight').value,footLen:$('pFootLen').value};
-  localStorage.setItem('fbl_profile',JSON.stringify(p)); $('profSaved').textContent='✓ saved';
+  localStorage.setItem('fbl_profile',JSON.stringify(p)); $('profSaved').textContent='вњ“ saved';
   setTimeout(()=>$('profSaved').textContent='',1500);
 };
 
@@ -554,15 +579,15 @@ function mmss(s){ const m=Math.floor(s/60); return String(m).padStart(2,'0')+':'
 
 document.querySelectorAll('.nav a').forEach(a=>a.onclick=e=>{e.preventDefault();showTab(a.dataset.tab);});
 function showTab(name){
-  if(name!=='calib' && calib.recording) calibStop();   // уходя с калибровки — остановить запись
+  if(name!=='calib' && calib.recording) calibStop();   // СѓС…РѕРґСЏ СЃ РєР°Р»РёР±СЂРѕРІРєРё вЂ” РѕСЃС‚Р°РЅРѕРІРёС‚СЊ Р·Р°РїРёСЃСЊ
   document.querySelectorAll('section').forEach(s=>s.classList.toggle('act',s.id==='tab-'+name));
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('act',a.dataset.tab===name));
   if(name==='history')renderHistory();
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.2';
+const APP_VERSION='v2.3';
 if($('ver')) $('ver').textContent=APP_VERSION;
-applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
+applyCalibFromData();   // РїРѕРґС…РІР°С‚РёС‚СЊ Рё РїРµСЂРµСЃС‡РёС‚Р°С‚СЊ СЃРѕС…СЂР°РЅС‘РЅРЅСѓСЋ РєР°Р»РёР±СЂРѕРІРєСѓ
 fillProfile(); renderHistory();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
