@@ -55,8 +55,9 @@ async function connectGatt(){
     // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
     if(!detector) detector=new Detector({onEvent:onDetEvent, onState:onDetState});
     requestWake();   // держим экран, пока подключены — иначе Web Bluetooth рвёт связь при гашении
-    // сначала синхронизируем офлайн-сессии с карты, потом включаем live-стрим
-    startSync();
+    // сперва узнаём состояние сессии на устройстве, затем синхронизируем офлайн-сессии
+    requestStat();
+    setTimeout(()=>startSync(), 500);   // разносим команды: у прошивки один буфер команд
     // прочитать статус SD (отправлен при подключении)
     const rd=async()=>{try{onEvent(new TextDecoder().decode(await evc.readValue()).trim());}catch(e){}};
     rd(); setTimeout(rd,400); setTimeout(rd,1200);
@@ -71,6 +72,8 @@ function onDisc(){
   connected=false; streaming=false; sync=null;
   const ss=$('syncStatus'); if(ss) ss.style.display='none';
   releaseWake();
+  // автономная запись продолжается на устройстве — показываем это
+  if(rec && rec.mode==='auto'){ $('recState').textContent='● recording on device (offline)'; $('recState').style.color='#ff4d6d'; }
   if(!wantConnected){
     detector=null;
     setConn('disconnected',false);
@@ -90,11 +93,14 @@ function scheduleReconnect(){
 function userDisconnect(){
   wantConnected=false; clearTimeout(reconnectTimer); retry=0;
   releaseWake();
+  // live-режим: сохраняем накопленное ДО разрыва (команд на устройство не шлёт).
+  // автономный: НЕ трогаем — запись продолжается на устройстве, в этом весь смысл режима.
+  if(rec && rec.mode==='live') stopRec(true);
   try{ if(dev&&dev.gatt&&dev.gatt.connected) dev.gatt.disconnect(); }catch(e){}
   connected=false; streaming=false; detector=null;
-  if(rec) stopRec(true);
   setConn('disconnected',false);
   $('connectBtn').textContent='Connect sensor'; $('recBtn').disabled=true;
+  if(rec && rec.mode==='auto'){ $('recState').textContent='● recording on device (offline)'; $('recState').style.color='#ff4d6d'; }
 }
 // wake lock: удержание экрана. Освобождается системой при уходе со вкладки — берём заново при возврате.
 async function requestWake(){
@@ -121,7 +127,12 @@ function onEvent(msg){
     }
     return;
   }
-  if(msg.startsWith('SESSION ON')){ if(!rec){ rec={mode:'auto',startMs:Date.now()}; recUI(true); } return; }   // на устройстве идёт запись
+  // состояние автономной сессии (ответ на STAT или уведомление при старте/стопе)
+  if(msg.startsWith('SESSION ON')){
+    if(!rec) rec={mode:'auto', startMs:Date.now()};
+    if(rec.mode==='auto') recUI(true, false);      // восстановить UI, счётчики не сбрасывать
+    return;
+  }
   if(msg.startsWith('SESSION OFF')){ if(rec && rec.mode==='auto'){ rec=null; recUI(false); } return; }
 }
 // ---- события от детектора на телефоне (по личным порогам) ----
@@ -235,9 +246,9 @@ async function stopRec(silent){
     if(!silent && connected){ setTimeout(()=>startSync(), 900); }
   }
 }
-function recUI(on){
+function recUI(on, resetCounts){
   if(on){
-    dCounts={KICK:0,JUMP:0}; $('sKick').textContent='0'; $('sJump').textContent='0';
+    if(resetCounts!==false){ dCounts={KICK:0,JUMP:0}; $('sKick').textContent='0'; $('sJump').textContent='0'; }
     requestWake();
     $('recBtn').textContent='■ Stop training'; $('recState').textContent='● recording'; $('recState').style.color='#ff4d6d';
     $('recHealth').innerHTML = (rec&&rec.mode==='live') ? 'live-запись в телефон — держи приложение открытым' : 'можно заблокировать телефон — запись идёт на устройстве';
@@ -269,6 +280,11 @@ function markSynced(name){ const s=syncedSet(); s.add(name); localStorage.setIte
 function setSync(msg, hideAfter){ const el=$('syncStatus'); if(!el)return; el.textContent='🔄 '+msg; el.style.display='block';
   clearTimeout(syncMsgTimer); if(hideAfter) syncMsgTimer=setTimeout(()=>{ el.style.display='none'; }, hideAfter); }
 
+// спросить у устройства, идёт ли автономная сессия (ответ придёт как "SESSION ON/OFF")
+async function requestStat(){
+  if(!ctrlCh) return;
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('STAT')); }catch(e){}
+}
 async function startSync(){
   if(!ctrlCh || sync){ enableLive(); return; }
   sync={ files:[], queue:[], cur:null, done:0 };
@@ -586,7 +602,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.4';
+const APP_VERSION='v2.5';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
