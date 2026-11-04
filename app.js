@@ -4,16 +4,16 @@ const EVENT  ='a0f10001-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const CTRL   ='a0f10002-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 const DATA   ='a0f10003-5a2b-4e6c-9c3d-1f2e3d4c5b6a';
 
-const EV = {KICK:{e:'⚽',svg:'i-ball',n:'KICK',c:'#ff7a3c'},JUMP:{e:'🦘',svg:'i-jump',n:'JUMP',c:'#b06bff'},
+const EV = {KICK:{e:'⚽',svg:'i-ball',n:'KICK',c:'#ff7a3c'},
   IDLE:{e:'🧍',n:'IDLE',c:'#7a86a1'},WALK:{e:'🚶',n:'WALK',c:'#2dd4bf'},RUN:{e:'🏃',n:'RUN',c:'#37d67a'}};
-// иконка события: вектор (мяч/прыжок) если задан svg, иначе эмодзи-статус текстом
+// иконка события: вектор (мяч) если задан svg, иначе эмодзи-статус текстом
 function svgIco(sym,color,size){ return `<svg class="ic" style="width:${size}px;height:${size}px;stroke:${color}"><use href="#${sym}"/></svg>`; }
 function evIcon(info,size){ return (info&&info.svg) ? svgIco(info.svg,info.c,size) : (info?info.e:''); }
 
 const $=id=>document.getElementById(id);
 let dev=null, ctrlCh=null, connected=false, streaming=false, detector=null;
 let prevState=null;
-let dCounts={KICK:0,JUMP:0};
+let dCounts={KICK:0};
 
 // запись
 let rec=null;              // {startMs, events:[], raw:{ax..}, samples}
@@ -50,7 +50,7 @@ async function connectGatt(){
     await dc.startNotifications();
     dc.addEventListener('characteristicvaluechanged',e=>onData(e.target.value));
     ctrlCh=await svc.getCharacteristic(CTRL);
-    connected=true; retry=0; setConn('connected',true);
+    connected=true; retry=0; setConn('connected · '+(dev.name||'sensor'),true);
     $('connectBtn').textContent='Disconnect'; $('recBtn').disabled=false;
     // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
     if(!detector) detector=new Detector({onEvent:onDetEvent, onState:onDetState});
@@ -138,13 +138,12 @@ function onEvent(msg){
 // ---- события от детектора на телефоне (по личным порогам) ----
 function onDetEvent(type,data){
   const info=EV[type]; if(!info) return;
-  const msg = (type==='JUMP') ? `JUMP air=${Math.round(data.air||0)}ms h=${Math.round(data.h||0)}cm`
-            : `${type} a=${(data.a||0).toFixed(1)}g g=${Math.round(data.g||0)}`;
+  const msg = `${type} a=${(data.a||0).toFixed(1)}g g=${Math.round(data.g||0)}`;
   hero(info,msg);
   if(dCounts[type]!==undefined){ dCounts[type]++; if(rec)recCount(type); }
   refreshCounts(); addLive(info,msg);
-  if(rec && rec.events) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g,air:data.air,h:data.h});
-  // после разового события (удар/прыжок) вернуть плашку к текущему состоянию,
+  if(rec && rec.events) rec.events.push({t:Date.now()-rec.startMs,type,a:data.a,g:data.g});
+  // после разового события (удар) вернуть плашку к текущему состоянию,
   // иначе "KICK" висит, пока не сменится зона (при беге состояние не меняется → onDetState молчит)
   clearTimeout(heroRevertTimer);
   heroRevertTimer=setTimeout(revertHeroToState, 800);
@@ -166,10 +165,9 @@ function hero(info,msg){
   else { e.innerHTML=''; e.textContent=info.e; }
   $('heroN').textContent=info.n; $('heroN').style.color=info.c; $('heroD').textContent=msg;
 }
-function refreshCounts(){ $('dKick').textContent=dCounts.KICK; $('dJump').textContent=dCounts.JUMP; }
+function refreshCounts(){ $('dKick').textContent=dCounts.KICK; }
 function recCount(type){
   if(type==='KICK')$('sKick').textContent=+($('sKick').textContent)+1;
-  if(type==='JUMP')$('sJump').textContent=+($('sJump').textContent)+1;
 }
 
 // ---- сырые данные (бинарь) ----
@@ -248,7 +246,7 @@ async function stopRec(silent){
 }
 function recUI(on, resetCounts){
   if(on){
-    if(resetCounts!==false){ dCounts={KICK:0,JUMP:0}; $('sKick').textContent='0'; $('sJump').textContent='0'; }
+    if(resetCounts!==false){ dCounts={KICK:0}; $('sKick').textContent='0'; }
     requestWake();
     $('recBtn').textContent='■ Stop training'; $('recState').textContent='● recording'; $('recState').style.color='#ff4d6d';
     $('recHealth').innerHTML = (rec&&rec.mode==='live') ? 'live-запись в телефон — держи приложение открытым' : 'можно заблокировать телефон — запись идёт на устройстве';
@@ -354,7 +352,7 @@ function sessionFromRaw(name, buf, declared){
   }
   const rec=raw.ax.length; if(rec<50) return null;
   let det; const events=[];
-  det=new Detector({ onEvent:(t,d)=>events.push({t:det.t, type:t, a:d.a, g:d.g, air:d.air, h:d.h}),
+  det=new Detector({ onEvent:(t,d)=>events.push({t:det.t, type:t, a:d.a, g:d.g}),
                      onState:(st,act)=>events.push({t:det.t, type:st, a:act}) });
   for(let i=0;i<rec;i++) det.push(raw.ax[i],raw.ay[i],raw.az[i],raw.gx[i],raw.gy[i],raw.gz[i]);
   const kicks=events.filter(e=>e.type==='KICK').length;
@@ -375,11 +373,11 @@ async function renderHistory(){
   if(!list.length){ $('histList').innerHTML='<div class="muted">no recorded sessions yet</div>'; return; }
   $('histList').innerHTML=list.map(s=>{
     const d=new Date(s.id); const dur=mmss(Math.floor(s.durationMs/1000));
-    const k=s.events.filter(e=>e.type==='KICK').length, j=s.events.filter(e=>e.type==='JUMP').length;
+    const k=s.events.filter(e=>e.type==='KICK').length;
     return `<div class="row" onclick="openAnalytics(${s.id})" style="cursor:pointer">
       <span class="ico">📊</span>
       <span style="flex:1"><b>${s.type}</b> · ${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
-        <div class="muted">${dur} · ${svgIco('i-ball','var(--kick)',12)}${k} ${svgIco('i-jump','var(--jump)',12)}${j} · ${s.samples} samples</div></span>
+        <div class="muted">${dur} · ${svgIco('i-ball','var(--kick)',12)}${k} · ${s.samples} samples</div></span>
       <span class="muted">›</span></div>`;
   }).join('');
 }
@@ -397,7 +395,7 @@ async function openAnalytics(id){
     </div>
     <div class="grid2">
       <div class="tile"><div class="n" style="color:var(--kick)">${m.kicks}</div><div class="l"><svg class="ic" style="stroke:var(--kick)"><use href="#i-ball"/></svg>kicks</div></div>
-      <div class="tile"><div class="n" style="color:var(--jump)">${m.jumps}</div><div class="l"><svg class="ic" style="stroke:var(--jump)"><use href="#i-jump"/></svg>jumps</div></div>
+      <div class="tile"><div class="n" style="color:var(--kick)">${m.maxKickG?m.maxKickG.toFixed(1):'—'}</div><div class="l">peak kick, g</div></div>
     </div>
     <div class="grid3" style="margin-top:10px">
       <div class="tile"><div class="n">${m.steps}</div><div class="l">steps</div></div>
@@ -418,9 +416,8 @@ async function openAnalytics(id){
       ${svgBars(m.kicksAn.map(k=>k.ball), 'var(--kick)', ' km/h')}
       <div class="muted" style="margin-top:6px">* estimated from foot rotation (ω·r), ±10-15%</div>
     </div>
-    <div class="card"><h3>Jumps and running</h3>
-      <div class="grid2" style="margin-top:10px">
-        <div class="tile"><div class="n" style="color:var(--jump)">${m.maxJumpCm?m.maxJumpCm.toFixed(0):'—'}</div><div class="l">max height, cm</div></div>
+    <div class="card"><h3>Running</h3>
+      <div class="grid3" style="margin-top:10px">
         <div class="tile"><div class="n">${(m.distM/1000).toFixed(2)}</div><div class="l">distance, km*</div></div>
         <div class="tile"><div class="n">${m.avgKmh.toFixed(1)}</div><div class="l">avg speed, km/h*</div></div>
         <div class="tile"><div class="n">${m.gctMs||'—'}</div><div class="l">foot contact, ms</div></div>
@@ -438,8 +435,8 @@ async function delSession(id){ if(confirm('Delete session?')){ await dbDel(id); 
 // экспорт: сырьё + события в CSV
 async function exportCSV(id){
   const s=await dbGet(id); if(!s) return;
-  let csv='# events\nt_ms,type,a_g,gyro_dps,air_ms,h_cm\n';
-  s.events.forEach(e=>csv+=`${e.t},${e.type},${e.a??''},${e.g??''},${e.air??''},${e.h??''}\n`);
+  let csv='# events\nt_ms,type,a_g,gyro_dps\n';
+  s.events.forEach(e=>csv+=`${e.t},${e.type},${e.a??''},${e.g??''}\n`);
   csv+='\n# raw @100Hz\ni,ax,ay,az,gx,gy,gz\n';
   const R=s.raw; for(let i=0;i<R.ax.length;i++) csv+=`${i},${R.ax[i]},${R.ay[i]},${R.az[i]},${R.gx[i]},${R.gy[i]},${R.gz[i]}\n`;
   const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
@@ -447,7 +444,7 @@ async function exportCSV(id){
 }
 
 // ================= КАЛИБРОВКА =================
-const CALIB_LABELS=[['IDLE','🧍 Idle'],['WALK','🚶 Walk'],['RUN','🏃 Run'],['KICK','⚽ Kick'],['JUMP','🦘 Jump']];
+const CALIB_LABELS=[['IDLE','🧍 Idle'],['WALK','🚶 Walk'],['RUN','🏃 Run'],['KICK','⚽ Kick']];
 let calib={recording:null, startMs:0, timer:null, data:{}};
 
 function buildCalib(){
@@ -619,7 +616,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.6';
+const APP_VERSION='v2.7';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();

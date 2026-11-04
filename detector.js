@@ -1,6 +1,6 @@
 /* Детектор движений на телефоне — работает из сырого потока по ЛИЧНЫМ порогам.
    push(ax,ay,az,gx,gy,gz) вызывается на каждый сэмпл (~100 Гц).
-   Колбэки: onEvent(type,{a,g,air,h}), onState(state,activity). */
+   Колбэки: onEvent(type,{a,g}), onState(state,activity). */
 
 function loadThresholds(){
   let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
@@ -9,7 +9,6 @@ function loadThresholds(){
     idle:z.idle, walk:z.walk, run:z.run,
     // g — пик касания мяча (выше бегового пика). Ручной override (kickManual) перебивает автоформулу.
     kickAcc: (c.kickManual!=null ? +c.kickManual : (c.kickAcc || 8)),
-    freefall:0.35, freefallMin:60, landing:2.5,
     capMs:80, coolMs:350, winMs:700, idleGyro:30, dt:10
   };
 }
@@ -19,7 +18,6 @@ class Detector {
   reloadThresholds(){ this.T=loadThresholds(); }
   reset(){
     this.t=0; this.cap=false; this.capStart=0; this.pa=0; this.pg=0; this.cool=0;
-    this.air=false; this.ffStart=0;
     this.actSum=0; this.gSum=0; this.actN=0; this.winStart=0; this.state='IDLE';
     this.cand=null; this.candN=0;
   }
@@ -28,22 +26,12 @@ class Detector {
     const aMag=Math.hypot(ax,ay,az), gMag=Math.hypot(gx,gy,gz), aDyn=Math.abs(aMag-1);
     const inCool = now < this.cool;
 
-    // --- прыжок (свободное падение + приземление) ---
-    if(!this.air && aMag<T.freefall){ if(this.ffStart===0)this.ffStart=now; if(now-this.ffStart>=T.freefallMin)this.air=true; }
-    else if(!this.air && aMag>=T.freefall){ this.ffStart=0; }
-    if(this.air){
-      if(aMag>T.landing){
-        const air=now-this.ffStart; const t=air/1000; const h=(9.81*t*t/8)*100;
-        this.emit('JUMP',{air,h}); this.air=false; this.ffStart=0; this.cool=now+T.coolMs;
-      } else if(now-this.ffStart>1200){ this.air=false; this.ffStart=0; }
-    } else {
-      // --- удар (по ПИКУ ускорения = касание мяча; выше бегового пика) ---
-      if(!this.cap && !inCool && aMag>T.kickAcc){ this.cap=true; this.capStart=now; this.pa=aMag; this.pg=gMag; }
-      if(this.cap){
-        if(aMag>this.pa)this.pa=aMag; if(gMag>this.pg)this.pg=gMag;
-        if(now-this.capStart>=T.capMs){
-          this.emit('KICK',{a:this.pa,g:this.pg}); this.cap=false; this.cool=now+T.coolMs;
-        }
+    // --- удар (по ПИКУ ускорения = касание мяча; выше бегового пика) ---
+    if(!this.cap && !inCool && aMag>T.kickAcc){ this.cap=true; this.capStart=now; this.pa=aMag; this.pg=gMag; }
+    if(this.cap){
+      if(aMag>this.pa)this.pa=aMag; if(gMag>this.pg)this.pg=gMag;
+      if(now-this.capStart>=T.capMs){
+        this.emit('KICK',{a:this.pa,g:this.pg}); this.cap=false; this.cool=now+T.coolMs;
       }
     }
 

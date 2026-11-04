@@ -1,6 +1,6 @@
 /* Движок аналитики: из сырых сэмплов IMU + событий считает метрики.
    Сэмплы: массивы ax,ay,az (g), gx,gy,gz (dps), ~100 Гц.
-   События: [{t, type, a, g, air, h}] (t — мс от старта сессии). */
+   События: [{t, type, a, g}] (t — мс от старта сессии). */
 
 // пороги зон — берём персональные (из калибровки) либо дефолт под лодыжку
 function getZ(){ const d={idle:0.086,walk:0.379,run:0.699};
@@ -66,7 +66,6 @@ function analyze(session, profile){
   // ---- события ----
   const ev = session.events||[];
   const kicks = ev.filter(e=>e.type==='KICK');
-  const jumps = ev.filter(e=>e.type==='JUMP');
   const impacts = ev.filter(e=>e.type==='IMPACT');
   const sprints = countStateEntries(ev,'SPRINT');
 
@@ -78,7 +77,7 @@ function analyze(session, profile){
     return {t:k.t, g:wdps, a:k.a||0, ball:ballKmh};
   });
   const maxKick = kicksAn.reduce((m,k)=>k.ball>m?k.ball:m,0);
-  const maxJump = jumps.reduce((m,j)=>(j.h||0)>m?(j.h||0):m,0);
+  const maxKickG = kicksAn.reduce((m,k)=>k.a>m?k.a:m,0);
 
   // дистанция/скорость (приблизительно): шаг ≈ рост*0.42
   const strideM = ((profile&&+profile.height)||175)/100*0.42;
@@ -91,8 +90,8 @@ function analyze(session, profile){
   return {
     durS, steps, cadence, bursts, turns, fatigue,
     zones:zoneT, timeline,
-    kicks:kicksAn.length, jumps:jumps.length, impacts:impacts.length, sprints,
-    maxKickKmh:maxKick, maxJumpCm:maxJump, kicksAn, jumpsAn:jumps,
+    kicks:kicksAn.length, impacts:impacts.length, sprints,
+    maxKickKmh:maxKick, maxKickG, kicksAn,
     distM, avgKmh, gctMs:gct, strideM,
     hasRaw:N>0
   };
