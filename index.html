@@ -135,11 +135,21 @@
   <section id="tab-calib">
     <div class="card">
       <h2>Calibration</h2>
+      <div style="display:flex;gap:8px;margin:6px 0 4px">
+        <button class="calModeBtn" data-cmode="preset" style="flex:1;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-weight:600">⭐ Base (preset)</button>
+        <button class="calModeBtn" data-cmode="custom" style="flex:1;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-weight:600">👤 My calibration</button>
+      </div>
+      <p class="muted" id="calModeHint" style="font-size:12px;margin:4px 0 0"></p>
+    </div>
+    <div class="card" id="calibCustomCard">
+      <h3>My calibration</h3>
       <p class="muted">For each movement: <b>"Record"</b> → do it 6–8 times → <b>"Stop"</b>. Be sure to record <b>Run and Kick</b> — the kick threshold is set from them.</p>
       <div id="calibList" style="display:flex;flex-direction:column;gap:10px;margin-top:12px"></div>
       <button class="big" id="calibCalc" style="margin-top:14px">📊 Calculate and save thresholds</button>
       <div id="calibResult" style="margin-top:12px;font-size:14px"></div>
-      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+    </div>
+    <div class="card">
+      <div>
         <label>Kick threshold override, g <span class="muted">(leave empty for auto)</span></label>
         <div style="display:flex;gap:8px">
           <input id="kickManual" type="number" inputmode="decimal" step="0.1" placeholder="auto" style="flex:1">
@@ -149,7 +159,7 @@
       </div>
     </div>
     <div class="card" id="calibSummaryCard" style="display:none">
-      <h3 style="margin-bottom:10px">Full calibration details</h3>
+      <h3 style="margin-bottom:10px" id="calibSummaryTitle">Full calibration details</h3>
       <div id="calibSummary"></div>
     </div>
   </section>

@@ -2,9 +2,8 @@
    Сэмплы: массивы ax,ay,az (g), gx,gy,gz (dps), ~100 Гц.
    События: [{t, type, a, g}] (t — мс от старта сессии). */
 
-// пороги зон — берём персональные (из калибровки) либо дефолт под лодыжку
-function getZ(){ const d={idle:0.086,walk:0.379,run:0.699};
-  try{ return Object.assign(d, JSON.parse(localStorage.getItem('fbl_zones')||'{}')); }catch(e){ return d; } }
+// пороги зон — действующие: своя калибровка или базовая (activeCalib из detector.js)
+function getZ(){ return activeCalib().zones; }
 const RAW_HZ = 100;
 
 function analyze(session, profile){

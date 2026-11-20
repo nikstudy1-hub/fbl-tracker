@@ -192,16 +192,14 @@ let dbg={n:0,peakA:0,peakG:0,lastA:1,sumDyn:0,cntDyn:0};
 setInterval(()=>{
   const el=$('dbg'); if(!el)return;
   if(!connected){ el.textContent='no data — connect sensor'; return; }
-  let t={}; try{ t=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
-  // показываем РЕАЛЬНЫЙ действующий порог (как его видит детектор): manual → сохранённый → дефолт 8
-  const hasManual = t.kickManual!=null;
-  const kickThr = hasManual ? t.kickManual : (t.kickAcc!=null ? t.kickAcc : 8);
-  const kickTag = hasManual ? ' (manual)' : (t.kickAcc!=null ? '' : ' (default)');
+  // показываем РЕАЛЬНЫЙ действующий порог (как его видит детектор): manual → своя/базовая калибровка
+  const a=activeCalib();
+  const kickTag = a.manual ? ' (manual)' : (a.source==='preset' ? ' (base)' : ' (mine)');
   const act=dbg.cntDyn?dbg.sumDyn/dbg.cntDyn:0;
   el.innerHTML=`stream ${dbg.n*2} Hz · a=${dbg.lastA.toFixed(1)}g<br>`+
     `<b style="color:#ff7a3c">PEAK acc=${dbg.peakA.toFixed(1)}g</b> · peak gyro=${Math.round(dbg.peakG)}<br>`+
     `act=${act.toFixed(2)} · state ${prevState||'—'}<br>`+
-    `kick thr &gt;${kickThr}g${kickTag} · run thr &gt;${t.zones?t.zones.walk.toFixed(2):'—'}`;
+    `kick thr &gt;${a.kickAcc}g${kickTag} · run thr &gt;${a.zones.walk.toFixed(2)}`;
   dbg.n=0;dbg.peakA=0;dbg.peakG=0;dbg.sumDyn=0;dbg.cntDyn=0;
 },500);
 
@@ -447,8 +445,33 @@ async function exportCSV(id){
 const CALIB_LABELS=[['IDLE','🧍 Idle'],['WALK','🚶 Walk'],['RUN','🏃 Run'],['KICK','⚽ Kick']];
 let calib={recording:null, startMs:0, timer:null, data:{}};
 
+// ---- режим калибровки: базовая (предустановленная) / своя ----
+function setCalibMode(m){
+  if(calib.recording) calibStop();
+  try{ localStorage.setItem('fbl_calibmode', m); }catch(e){}
+  if(detector) detector.reloadThresholds();
+  buildCalib();
+}
+document.querySelectorAll('.calModeBtn').forEach(b=>b.onclick=()=>setCalibMode(b.dataset.cmode));
+function renderCalibMode(){
+  const m=calibMode();
+  document.querySelectorAll('.calModeBtn').forEach(b=>{ const on=b.dataset.cmode===m;
+    b.style.borderColor=on?'var(--accent)':'var(--line)'; b.style.background=on?'#12233d':'var(--card2)'; });
+  $('calModeHint').textContent = m==='preset'
+    ? 'Base: ready-made thresholds from a reference recording (sensor on the ankle). Works right away, no calibration needed.'
+    : 'Mine: thresholds from your own movements. Until you tap "Calculate", the base thresholds are used.';
+  $('calibCustomCard').style.display = m==='custom' ? 'block' : 'none';
+}
+
 function buildCalib(){
   loadCalibData();
+  renderCalibMode();
+  loadKickManual();
+  if(calibMode()==='preset'){
+    const P=PRESET_CALIB;
+    renderCalibSummary(P.stats, P.zones, 'Base calibration', false);
+    return;
+  }
   $('calibList').innerHTML=CALIB_LABELS.map(([k,n])=>{
     const has=calib.data[k]&&calib.data[k].act&&calib.data[k].act.length;
     return `
@@ -459,7 +482,6 @@ function buildCalib(){
   }).join('');
   CALIB_LABELS.forEach(([k])=>{ if(calib.data[k]&&calib.data[k].act&&calib.data[k].act.length) updateCalibRow(k,true); });
   showSavedCalib();
-  loadKickManual();
 }
 function calibToggle(label){
   if(!connected){ $('calibResult').innerHTML='<span style="color:var(--sprint)">connect the sensor first (Sensor tab)</span>'; return; }
@@ -495,11 +517,22 @@ function updateCalibRow(label,done){
   }
 }
 function showSavedCalib(){
-  let s=null; try{ s=JSON.parse(localStorage.getItem('fbl_calib')||'null'); }catch(e){}
-  if(s&&s.zones){ const d=new Date(s.ts);
+  const s=readCalib();
+  if(s.zones){ const d=new Date(s.ts);
     $('calibResult').innerHTML=`✅ <b>Saved</b> ${d.toLocaleString('en-GB')} · kick&gt;${s.kickAcc||'—'}g`;
-    renderCalibSummary(calib.data, s);
-  } else { $('calibResult').innerHTML='<span class="muted">do the movements and tap "Calculate"</span>'; }
+    renderCalibSummary(statsFromData(calib.data), s.zones, 'My calibration', true);
+  } else {
+    $('calibResult').innerHTML='<span class="muted">do the movements and tap "Calculate" — until then the base thresholds are used</span>';
+    $('calibSummaryCard').style.display='none';
+  }
+}
+// статистика своей записи — в том же виде, что PRESET_CALIB.stats
+function statsFromData(D){
+  const s={};
+  CALIB_LABELS.forEach(([k])=>{ const d=D[k]; if(!d||!d.act||!d.act.length) return;
+    s[k]={ n:d.act.length, act:d.act.reduce((x,y)=>x+y,0)/d.act.length,
+           acc:d.acc.reduce((m,v)=>v>m?v:m,0), gyro:d.gyro.reduce((m,v)=>v>m?v:m,0) }; });
+  return s;
 }
 // вычисление порогов из записанных движений (без спринта)
 function computeThresholds(D){
@@ -528,10 +561,11 @@ function calibCalc(){
   if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // ручной override не затираем
   localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
+  localStorage.setItem('fbl_calibmode','custom');
   saveCalibData();
   if(detector) detector.reloadThresholds();
   $('calibResult').innerHTML='<span style="color:var(--run)">✓ Saved permanently and applied — to the home screen and analytics.</span>';
-  renderCalibSummary(calib.data, saved);
+  renderCalibSummary(statsFromData(calib.data), saved.zones, 'My calibration', true);
   loadKickManual();
 }
 function saveCalibData(){ try{ localStorage.setItem('fbl_calibdata', JSON.stringify(calib.data)); }catch(e){} }
@@ -548,14 +582,15 @@ function applyCalibFromData(){
 }
 // ---- ручной порог удара (override): перебивает автоформулу, не затирается пересчётом ----
 function loadKickManual(){
-  let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
+  const c=readCalib();
   if($('kickManual')) $('kickManual').value = (c.kickManual!=null ? c.kickManual : '');
-  updateKickManualMsg(c);
+  updateKickManualMsg();
 }
-function updateKickManualMsg(c){
+function updateKickManualMsg(){
   const el=$('kickManualMsg'); if(!el)return;
-  if(c.kickManual!=null) el.innerHTML=`<span style="color:var(--run)">Manual: kicks counted from <b>${c.kickManual}g</b> (overrides auto ${c.kickAcc!=null?c.kickAcc+'g':'—'})</span>`;
-  else el.innerHTML=`Auto: kicks counted from <b>${c.kickAcc!=null?c.kickAcc+'g':'—'}</b>`;
+  const a=activeCalib(), src=a.source==='preset'?'base':'mine';
+  if(a.manual) el.innerHTML=`<span style="color:var(--run)">Manual: kicks counted from <b>${a.kickAcc}g</b> (overrides ${src} ${a.autoKick}g)</span>`;
+  else el.innerHTML=`Auto (${src}): kicks counted from <b>${a.autoKick}g</b>`;
 }
 function applyKickManual(){
   let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
@@ -564,22 +599,27 @@ function applyKickManual(){
   else { const n=parseFloat(v); if(isNaN(n)||n<=0){ $('kickManualMsg').innerHTML='<span style="color:var(--sprint)">enter a positive number</span>'; return; } c.kickManual=+n.toFixed(1); }
   localStorage.setItem('fbl_calib',JSON.stringify(c));
   if(detector) detector.reloadThresholds();
-  updateKickManualMsg(c);
+  updateKickManualMsg();
+  if(calibMode()==='preset') buildCalib();                 // обновить строку порога в таблице базовой
+  else if(c.zones) renderCalibSummary(statsFromData(calib.data), c.zones, 'My calibration', true);
 }
-function renderCalibSummary(D, saved){
-  const mean=a=>a&&a.length?a.reduce((x,y)=>x+y,0)/a.length:null, max=a=>a&&a.length?Math.max(...a):null;
+// таблица калибровки: stats {KEY:{n,act,acc,gyro}}, зоны, заголовок, кнопка сброса (только у своей)
+function renderCalibSummary(stats, zones, title, canReset){
+  const a=activeCalib();
+  const td=v=>`<td style="padding:5px 6px">${v}</td>`;
   const rows=CALIB_LABELS.map(([k,n])=>{
-    const d=D[k]; if(!d||!d.act.length) return `<tr><td style="padding:5px 6px">${n}</td><td colspan="4" class="muted" style="padding:5px 6px">none</td></tr>`;
-    return `<tr><td style="padding:5px 6px">${n}</td><td style="padding:5px 6px">${d.act.length}</td><td style="padding:5px 6px">${mean(d.act).toFixed(2)}</td><td style="padding:5px 6px">${max(d.acc).toFixed(1)}g</td><td style="padding:5px 6px">${Math.round(max(d.gyro))}</td></tr>`;
+    const d=stats[k]; if(!d) return `<tr>${td(n)}<td colspan="4" class="muted" style="padding:5px 6px">none</td></tr>`;
+    return `<tr>${td(n)}${td(d.n)}${td(d.act.toFixed(2))}${td(d.acc.toFixed(1)+'g')}${td(Math.round(d.gyro))}</tr>`;
   }).join('');
+  $('calibSummaryTitle').textContent=title;
   $('calibSummary').innerHTML=`
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
-      <tr class="muted"><td style="padding:5px 6px">movement</td><td style="padding:5px 6px">samples</td><td style="padding:5px 6px">activity</td><td style="padding:5px 6px">peak acc</td><td style="padding:5px 6px">gyro</td></tr>
+      <tr class="muted">${td('movement')}${td('samples')}${td('activity')}${td('peak acc')}${td('gyro')}</tr>
       ${rows}</table></div>
     <div style="margin-top:12px;font-size:14px"><b>Thresholds (applied):</b><br>
-      zones: idle&lt;${saved.zones.idle.toFixed(3)} · walk&lt;${saved.zones.walk.toFixed(3)} · run&lt;${saved.zones.run.toFixed(3)}<br>
-      kick: acceleration&gt;${saved.kickManual!=null?saved.kickManual+'g (manual)':saved.kickAcc+'g'}</div>
-    <button class="big ghost" style="margin-top:14px" onclick="calibReset()">↻ Restart calibration</button>`;
+      zones: idle&lt;${zones.idle.toFixed(3)} · walk&lt;${zones.walk.toFixed(3)} · run&lt;${zones.run.toFixed(3)}<br>
+      kick: acceleration&gt;${a.kickAcc}g${a.manual?' (manual)':''}</div>
+    ${canReset?'<button class="big ghost" style="margin-top:14px" onclick="calibReset()">↻ Restart calibration</button>':''}`;
   $('calibSummaryCard').style.display='block';
 }
 function calibReset(){ if(calib.recording)calibStop(); calib.data={}; $('calibSummaryCard').style.display='none'; buildCalib(); $('calibResult').innerHTML='<span class="muted">do the movements and tap "Calculate"</span>'; }
@@ -616,7 +656,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.7';
+const APP_VERSION='v2.8';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();

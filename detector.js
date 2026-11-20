@@ -2,13 +2,37 @@
    push(ax,ay,az,gx,gy,gz) вызывается на каждый сэмпл (~100 Гц).
    Колбэки: onEvent(type,{a,g}), onState(state,activity). */
 
+// Базовая (предустановленная) калибровка — эталонная запись (24.07.2026, датчик на лодыжке), без прыжков.
+// stats — для таблицы на экране калибровки: сэмплы, активность, пик ускорения (g), пик гиро (dps).
+const PRESET_CALIB={
+  zones:{idle:0.144, walk:0.765, run:1.879}, kickAcc:18.5,
+  stats:{ IDLE:{n:273,act:0.01,acc:1.0,gyro:29}, WALK:{n:786,act:0.28,acc:4.5,gyro:390},
+          RUN:{n:621,act:1.25,acc:16.1,gyro:833}, KICK:{n:429,act:1.01,acc:19.9,gyro:1274} }
+};
+function readCalib(){ try{ return JSON.parse(localStorage.getItem('fbl_calib')||'{}')||{}; }catch(e){ return {}; } }
+// режим: 'preset' | 'custom'. Если не выбран — своя, если она уже посчитана, иначе базовая.
+function calibMode(){
+  let m=null; try{ m=localStorage.getItem('fbl_calibmode'); }catch(e){}
+  if(m==='preset'||m==='custom') return m;
+  return readCalib().zones ? 'custom' : 'preset';
+}
+// действующие пороги. Своя калибровка без расчёта → базовые. Ручной порог удара перебивает оба режима.
+function activeCalib(){
+  const c=readCalib();
+  const usePreset = calibMode()==='preset' || !c.zones;
+  const zones = Object.assign({}, usePreset ? PRESET_CALIB.zones : c.zones);
+  const autoKick = usePreset ? PRESET_CALIB.kickAcc : (c.kickAcc || PRESET_CALIB.kickAcc);
+  const manual = c.kickManual!=null;
+  return { mode:calibMode(), source:usePreset?'preset':'custom', zones, autoKick, manual,
+           kickAcc: manual ? +c.kickManual : autoKick };
+}
+
 function loadThresholds(){
-  let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
-  const z=(c.zones)||{idle:0.086,walk:0.379,run:0.699};
+  const a=activeCalib(), z=a.zones;
   return {
     idle:z.idle, walk:z.walk, run:z.run,
     // g — пик касания мяча (выше бегового пика). Ручной override (kickManual) перебивает автоформулу.
-    kickAcc: (c.kickManual!=null ? +c.kickManual : (c.kickAcc || 8)),
+    kickAcc: a.kickAcc,
     capMs:80, coolMs:350, winMs:700, idleGyro:30, dt:10
   };
 }
