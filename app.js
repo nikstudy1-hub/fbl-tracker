@@ -50,7 +50,7 @@ async function connectGatt(){
     await dc.startNotifications();
     dc.addEventListener('characteristicvaluechanged',e=>onData(e.target.value));
     ctrlCh=await svc.getCharacteristic(CTRL);
-    connected=true; retry=0; setConn('connected · '+(dev.name||'sensor'),true);
+    connected=true; retry=0; sdOk=null; setConn('connected · '+(dev.name||'sensor'),true);
     $('connectBtn').textContent='Disconnect'; $('recBtn').disabled=false;
     // распознавание — на телефоне, по личным порогам; датчик просто стримит сырьё
     if(!detector) detector=new Detector({onEvent:onDetEvent, onState:onDetState});
@@ -117,7 +117,8 @@ document.addEventListener('visibilitychange',()=>{
 
 // ---- текстовые сообщения датчика: только статус SD (движения ловит телефон) ----
 function onEvent(msg){
-  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ const el=$('sdText')||$('sdPill'); el.textContent=msg; return; }
+  if(msg.startsWith('SD')||msg.startsWith('NO SD')){ const el=$('sdText')||$('sdPill'); el.textContent=msg;
+    sdOk = msg.startsWith('SD OK') ? true : false; return; }
   if(msg.startsWith('BAT')){                     // "BAT <volts> <percent>"
     const p=msg.split(/\s+/); const v=parseFloat(p[1]), pct=parseInt(p[2]);
     const el=$('batText'); const pill=$('batPill');
@@ -129,11 +130,16 @@ function onEvent(msg){
   }
   // состояние автономной сессии (ответ на STAT или уведомление при старте/стопе)
   if(msg.startsWith('SESSION ON')){
+    if(stopping) return;                            // ждём подтверждения стопа — старый статус не воскрешает запись
     if(!rec) rec={mode:'auto', startMs:Date.now()};
-    if(rec.mode==='auto') recUI(true, false);      // восстановить UI, счётчики не сбрасывать
+    if(rec.mode==='auto'){ rec.pending=false; clearSesTimers(); recUI(true, false); }  // подтверждено устройством
     return;
   }
-  if(msg.startsWith('SESSION OFF')){ if(rec && rec.mode==='auto'){ rec=null; recUI(false); } return; }
+  if(msg.startsWith('SESSION OFF')){
+    if(stopping){ stopping=false; clearSesTimers(); recUI(false); setTimeout(()=>startSync(), 300); return; }  // стоп подтверждён → тянем файл
+    if(rec && rec.mode==='auto' && !rec.pending){ rec=null; recUI(false); }
+    return;
+  }
 }
 // ---- события от детектора на телефоне (по личным порогам) ----
 function onDetEvent(type,data){
@@ -217,30 +223,54 @@ function setMode(m){
     : 'Autonomous: устройство пишет на свою карту, телефон можно убрать. Подтянется по Stop.';
 }
 
+// автономка подтверждается устройством ("SESSION ON/OFF"): без подтверждения запись не считаем начатой/остановленной
+let sdOk=null, stopping=false, sesTimers=[];
+function clearSesTimers(){ sesTimers.forEach(clearTimeout); sesTimers=[]; }
+function recWarn(msg){ $('recHealth').innerHTML=`<span style="color:var(--sprint)">⚠ ${msg}</span>`; }
+
 async function startRec(){
-  if(!connected || !ctrlCh) return;
+  if(!connected || !ctrlCh){ recWarn('sensor not connected — connect it on the Sensor tab'); return; }
   if(recMode==='live'){
     rec={mode:'live', startMs:Date.now(), raw:{ax:[],ay:[],az:[],gx:[],gy:[],gz:[]}, events:[], samples:0};
     try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
-  } else {
-    try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 1')); }catch(e){ return; }
-    rec={mode:'auto', startMs:Date.now()};
+    recUI(true);
+    return;
   }
+  if(sdOk===false){ recWarn('no SD card in the sensor — Autonomous records to the card. Insert a card and restart the sensor, or use Live.'); return; }
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 1')); }
+  catch(e){ recWarn('sensor did not respond — try again'); return; }
+  rec={mode:'auto', startMs:Date.now(), pending:true};
   recUI(true);
+  $('recState').textContent='… starting on the sensor';
+  clearSesTimers();
+  sesTimers.push(setTimeout(()=>requestStat(), 1500));             // уведомление могло потеряться — переспросим
+  sesTimers.push(setTimeout(()=>{
+    if(rec && rec.pending){ rec=null; recUI(false);
+      recWarn('the sensor did not start recording (check the SD card: the SD badge must show "SD OK"). Nothing is being recorded.'); }
+  }, 4500));
 }
 async function stopRec(silent){
-  const r=rec; rec=null; recUI(false);
-  if(!r) return;
-  if(r.mode==='live'){                             // сохраняем сессию из телефона сразу
+  if(!rec) return;
+  if(rec.mode==='live'){                           // сохраняем сессию из телефона сразу
+    const r=rec; rec=null; recUI(false);
     if(r.samples>0 || r.events.length>0){
       const sess={ id:Date.now(), date:new Date().toISOString(), type:$('sType').value, note:$('sNote').value,
         durationMs:Date.now()-r.startMs, events:r.events, raw:r.raw, samples:r.samples };
       await dbAdd(sess); if(!silent){ renderHistory(); openAnalytics(sess.id); }
     }
-  } else {                                          // автономка: стоп на устройстве + синк
-    if(ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 0')); }catch(e){} }
-    if(!silent && connected){ setTimeout(()=>startSync(), 900); }
+    return;
   }
+  // автономка: стоп только при живой связи, иначе датчик продолжит писать, а мы бы «забыли» о записи
+  if(!connected || !ctrlCh){ recWarn('sensor not connected — the sensor is still recording. Reconnect and press Stop again.'); return; }
+  try{ await ctrlCh.writeValue(new TextEncoder().encode('SES 0')); }
+  catch(e){ recWarn('sensor did not respond — it is still recording. Press Stop again.'); return; }
+  rec=null; stopping=true; recUI(false);
+  $('recState').textContent='… stopping on the sensor';
+  clearSesTimers();
+  sesTimers.push(setTimeout(()=>requestStat(), 1500));
+  sesTimers.push(setTimeout(()=>{                  // подтверждение не пришло — всё равно пробуем синк
+    if(stopping){ stopping=false; recUI(false); if(connected) startSync(); }
+  }, 5000));
 }
 function recUI(on, resetCounts){
   if(on){
@@ -273,6 +303,9 @@ async function dbDel(id){ const d=await db(); return new Promise(r=>{ d.transact
 let sync=null, syncMsgTimer=null;
 function syncedSet(){ try{ return new Set(JSON.parse(localStorage.getItem('fbl_synced_ses')||'[]')); }catch(e){ return new Set(); } }
 function markSynced(name){ const s=syncedSet(); s.add(name); localStorage.setItem('fbl_synced_ses', JSON.stringify([...s])); }
+// ключ «уже выгружено» — с именем датчика: у каждого датчика своя нумерация SES00000…, без имени файлы
+// второго датчика с теми же номерами считались бы выгруженными и молча пропускались
+function syncKey(file){ return ((dev&&dev.name)||'?')+'/'+file; }
 function setSync(msg, hideAfter){ const el=$('syncStatus'); if(!el)return; el.textContent='🔄 '+msg; el.style.display='block';
   clearTimeout(syncMsgTimer); if(hideAfter) syncMsgTimer=setTimeout(()=>{ el.style.display='none'; }, hideAfter); }
 
@@ -305,7 +338,7 @@ function onSyncPacket(dv){
 }
 function onListDone(){
   const done=syncedSet();
-  sync.queue = sync.files.filter(f=>/^SES\d+\.(CSV|BIN)$/i.test(f.name) && f.size>=500 && !done.has(f.name));
+  sync.queue = sync.files.filter(f=>/^SES\d+\.(CSV|BIN)$/i.test(f.name) && f.size>=500 && !done.has(syncKey(f.name)));
   if(!sync.queue.length){ setSync('no new sessions', 2500); finishSync(); return; }
   setSync(`${sync.queue.length} new session(s) to download`);
   nextInQueue();
@@ -322,9 +355,10 @@ async function onFileDone(){
     try{
       const buf=new Uint8Array(await new Blob(c.parts).arrayBuffer());
       const sess=sessionFromRaw(c.name, buf, c.size);
-      if(sess){ await dbAdd(sess); markSynced(c.name); sync.done++; renderHistory();
+      if(sess){ sess.note=((dev&&dev.name)?dev.name+' · ':'')+sess.note;
+                await dbAdd(sess); markSynced(syncKey(c.name)); sync.done++; renderHistory();
                 if(sess.diag) setSync(sess.diag, 15000); }
-      else markSynced(c.name);   // мусорный/пустой файл — не тянем повторно
+      else markSynced(syncKey(c.name));   // мусорный/пустой файл — не тянем повторно
     }catch(e){ console.error('parse fail',e); }
   }
   nextInQueue();
@@ -656,7 +690,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.8';
+const APP_VERSION='v2.9';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
