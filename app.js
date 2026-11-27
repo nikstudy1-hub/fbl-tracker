@@ -457,22 +457,57 @@ async function openAnalytics(id){
       <div class="muted" style="margin-top:6px">* approximate (from cadence and stride)</div>
     </div>
     <div class="card">
-      <button class="big ghost" onclick="exportCSV(${s.id})">⬇ Export CSV (for ML)</button>
+      <button class="big ghost" onclick="exportCSV('download')">⬇ Download CSV (for ML)</button>
+      ${canShareFiles()?'<button class="big ghost" style="margin-top:10px" onclick="exportCSV(\'share\')">📤 Share / save to Files</button>':''}
+      <button class="big ghost" style="margin-top:10px" onclick="exportCSV('copy')">📋 Copy CSV as text</button>
+      <div class="muted" id="exportMsg" style="margin-top:8px"></div>
       <button class="big ghost" style="margin-top:10px" onclick="delSession(${s.id})">🗑 Delete session</button>
     </div>`;
+  curSession=s;
   showTab('analytics');
 }
 async function delSession(id){ if(confirm('Delete session?')){ await dbDel(id); renderHistory(); showTab('history'); } }
 
-// экспорт: сырьё + события в CSV
-async function exportCSV(id){
-  const s=await dbGet(id); if(!s) return;
-  let csv='# events\nt_ms,type,a_g,gyro_dps\n';
-  s.events.forEach(e=>csv+=`${e.t},${e.type},${e.a??''},${e.g??''}\n`);
-  csv+='\n# raw @100Hz\ni,ax,ay,az,gx,gy,gz\n';
-  const R=s.raw; for(let i=0;i<R.ax.length;i++) csv+=`${i},${R.ax[i]},${R.ay[i]},${R.az[i]},${R.gx[i]},${R.gy[i]},${R.gz[i]}\n`;
-  const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='session_'+id+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+// экспорт: сырьё + события в CSV. Сессия берётся из уже открытой аналитики (curSession), а не из базы:
+// «Поделиться» на iPhone требует вызова прямо из нажатия, ожидание IndexedDB этот признак теряет.
+let curSession=null;
+function canShareFiles(){
+  try{ return !!(navigator.canShare && navigator.canShare({files:[new File(['x'],'t.csv',{type:'text/csv'})]})); }catch(e){ return false; }
+}
+function sessionCSV(s){
+  const out=['# events','t_ms,type,a_g,gyro_dps'];
+  s.events.forEach(e=>out.push(`${e.t},${e.type},${e.a??''},${e.g??''}`));
+  out.push('','# raw @100Hz','i,ax,ay,az,gx,gy,gz');
+  const R=s.raw||{ax:[]}; const r=v=>Math.round(v*1000)/1000;
+  for(let i=0;i<R.ax.length;i++) out.push(`${i},${r(R.ax[i])},${r(R.ay[i])},${r(R.az[i])},${r(R.gx[i])},${r(R.gy[i])},${r(R.gz[i])}`);
+  return out.join('\n')+'\n';
+}
+async function exportCSV(how){
+  const s=curSession; const msg=$('exportMsg'); if(!s) return;
+  const d=new Date(s.id), p=n=>String(n).padStart(2,'0');
+  const name=`fbl_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.csv`;
+  const csv=sessionCSV(s);
+  try{
+    if(how==='share'){
+      await navigator.share({files:[new File([csv],name,{type:'text/csv'})], title:name});
+      if(msg) msg.textContent='✓ shared';
+    } else if(how==='copy'){
+      await navigator.clipboard.writeText(csv);
+      if(msg) msg.textContent=`✓ copied (${Math.round(csv.length/1024)} KB) — paste into Notes / Telegram / email`;
+    } else {
+      // ссылку кладём в документ и отзываем не сразу: Chrome на Android скачивает blob асинхронно,
+      // и при отзыве через 1 с (как было) файл не сохранялся
+      const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+      const a=document.createElement('a'); a.href=url; a.download=name; a.style.display='none';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+      if(msg) msg.textContent=`⬇ ${name} — look in Downloads. Nothing saved? Use ${canShareFiles()?'"Share" or ':''}"Copy".`;
+    }
+  }catch(e){
+    if(e && e.name==='AbortError') return;          // пользователь закрыл окно «Поделиться»
+    console.error('export failed',e);
+    if(msg) msg.innerHTML=`<span style="color:var(--sprint)">⚠ ${how} failed on this browser — try another button</span>`;
+  }
 }
 
 // ================= КАЛИБРОВКА =================
@@ -690,7 +725,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.9';
+const APP_VERSION='v2.10';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();
