@@ -6,6 +6,81 @@
 function getZ(){ return activeCalib().zones; }
 const RAW_HZ = 100;
 
+// ================= ОЧИСТКА СЫРЬЯ =================
+// Датчик меряет ±16 g и ±2000 °/с. Всё, что вне диапазона, — не движение, а порча строки: при потере
+// BLE-пакета во время выгрузки конец одной строки клеится к началу другой («982»+«988» → 982.988 g).
+// Такие сэмплы и одиночные выбросы помечаем и заменяем линейной интерполяцией по соседям.
+// Исходные данные в базе не меняются — очистка делается при каждом показе/экспорте.
+const SENS_A=16.05, SENS_G=2000.5;
+const RAW_KEYS=['ax','ay','az','gx','gy','gz'];
+function cleanRaw(R){
+  const N=R.ax.length, C={};
+  RAW_KEYS.forEach(k=>C[k]=Array.from(R[k]));
+  const flag=new Uint8Array(N); let nRange=0, nSpike=0;
+  for(let i=0;i<N;i++){
+    let bad=false;
+    for(let j=0;j<6;j++){ const v=C[RAW_KEYS[j]][i]; if(!Number.isFinite(v) || Math.abs(v)>(j<3?SENS_A:SENS_G)){ bad=true; break; } }
+    if(bad){ flag[i]=1; nRange++; }
+  }
+  const am=i=>Math.hypot(C.ax[i],C.ay[i],C.az[i]);
+  const gm=i=>Math.hypot(C.gx[i],C.gy[i],C.gz[i]);
+  for(let i=1;i<N-1;i++){
+    if(flag[i]||flag[i-1]||flag[i+1]) continue;
+    // одиночный всплеск ускорения: >6 g над обоими соседями, соседи похожи, ноги не машут (гиро < 300 °/с)
+    const a=am(i), p=am(i-1), n=am(i+1);
+    if(a-Math.max(p,n)>6 && Math.abs(p-n)<2){
+      let g=0; for(let j=Math.max(0,i-3);j<=Math.min(N-1,i+3);j++){ if(j!==i){ const v=gm(j); if(v>g)g=v; } }
+      if(g<300){ flag[i]=2; nSpike++; continue; }
+    }
+    // одиночный скачок одной оси гиро на >800 °/с туда и обратно
+    for(const k of ['gx','gy','gz']){
+      const d1=C[k][i]-C[k][i-1], d2=C[k][i]-C[k][i+1];
+      if(Math.abs(d1)>800 && Math.abs(d2)>800 && Math.sign(d1)===Math.sign(d2) && Math.abs(C[k][i-1]-C[k][i+1])<300){ flag[i]=3; nSpike++; break; }
+    }
+  }
+  // починка: линейно между ближайшими хорошими сэмплами
+  for(let i=0;i<N;i++){
+    if(!flag[i]) continue;
+    let a=i-1; while(a>=0 && flag[a]) a--;
+    let b=i+1; while(b<N && flag[b]) b++;
+    for(const k of RAW_KEYS){
+      const va = a>=0 ? C[k][a] : (b<N ? C[k][b] : 0), vb = b<N ? C[k][b] : va;
+      const f = (a>=0 && b<N) ? (i-a)/(b-a) : 0;
+      C[k][i] = va + (vb-va)*f;
+    }
+  }
+  return { raw:C, flag, nRange, nSpike, n:N };
+}
+// прогон детектора по (очищенному) сырью → события с временем от начала сессии
+function detectEvents(R){
+  const ev=[]; let det;
+  det=new Detector({ onEvent:(t,d)=>ev.push({t:det.t, type:t, a:d.a, g:d.g}),
+                     onState:(st,act)=>ev.push({t:det.t, type:st, a:act}) });
+  for(let i=0;i<R.ax.length;i++) det.push(R.ax[i],R.ay[i],R.az[i],R.gx[i],R.gy[i],R.gz[i]);
+  return ev;
+}
+// сессия «как показывать»: сырьё очищено, события пересчитаны по текущим порогам (кэш на последние 3)
+const _viewCache=[], _kickCache=new Map();
+function thrSig(){ try{ return JSON.stringify(loadThresholds()); }catch(e){ return ''; } }
+function hasRaw(s){ return !!(s && s.raw && s.raw.ax && s.raw.ax.length); }
+function sessionView(s){
+  if(!hasRaw(s)) return Object.assign({}, s, {clean:null});
+  const key=s.id+'|'+thrSig();
+  const hit=_viewCache.find(v=>v.key===key); if(hit) return hit.view;
+  const cl=cleanRaw(s.raw);
+  const view=Object.assign({}, s, { raw:cl.raw, events:detectEvents(cl.raw), clean:cl });
+  _viewCache.unshift({key, view}); if(_viewCache.length>3) _viewCache.pop();
+  _kickCache.set(key, view.events.filter(e=>e.type==='KICK').length);
+  return view;
+}
+// число ударов для списка истории — без хранения очищенных копий всех сессий
+function sessionKicks(s){
+  if(!hasRaw(s)) return (s.events||[]).filter(e=>e.type==='KICK').length;
+  const key=s.id+'|'+thrSig();
+  if(!_kickCache.has(key)){ const cl=cleanRaw(s.raw); _kickCache.set(key, detectEvents(cl.raw).filter(e=>e.type==='KICK').length); }
+  return _kickCache.get(key);
+}
+
 function analyze(session, profile){
   const s = session.raw || {ax:[],ay:[],az:[],gx:[],gy:[],gz:[]};
   const N = s.ax.length;

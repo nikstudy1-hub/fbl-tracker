@@ -180,6 +180,10 @@ function recCount(type){
 function onData(dv){
   if(dv.getUint8(0)!==0x52){ onSyncPacket(dv); return; }   // 'R' = live-сырьё; иначе пакет файл-синка
   const n=Math.floor((dv.byteLength-3)/12);
+  // номер пакета: пропуск = потерянные сэмплы (датчик обнуляет номер на каждый REC 1)
+  const seq=dv.getUint16(1,true);
+  if(lastSeq!=null && seq!==0){ const miss=(seq-lastSeq-1)&0xFFFF; if(miss>0 && miss<1000){ liveLost+=miss; if(rec&&rec.raw) rec.lostPkts=(rec.lostPkts||0)+miss; } }
+  lastSeq=seq;
   for(let i=0;i<n;i++){
     const o=3+i*12;
     const ax=dv.getInt16(o,true)/1000, ay=dv.getInt16(o+2,true)/1000, az=dv.getInt16(o+4,true)/1000;
@@ -195,6 +199,7 @@ function onData(dv){
   if(rec && rec.raw) rec.samples+=n;
 }
 let dbg={n:0,peakA:0,peakG:0,lastA:1,sumDyn:0,cntDyn:0};
+let lastSeq=null, liveLost=0;
 setInterval(()=>{
   const el=$('dbg'); if(!el)return;
   if(!connected){ el.textContent='no data — connect sensor'; return; }
@@ -204,8 +209,8 @@ setInterval(()=>{
   const act=dbg.cntDyn?dbg.sumDyn/dbg.cntDyn:0;
   el.innerHTML=`stream ${dbg.n*2} Hz · a=${dbg.lastA.toFixed(1)}g<br>`+
     `<b style="color:#ff7a3c">PEAK acc=${dbg.peakA.toFixed(1)}g</b> · peak gyro=${Math.round(dbg.peakG)}<br>`+
-    `act=${act.toFixed(2)} · state ${prevState||'—'}<br>`+
-    `kick thr &gt;${a.kickAcc}g${kickTag} · run thr &gt;${a.zones.walk.toFixed(2)}`;
+    `act=${act.toFixed(2)} · state ${prevState||'—'}${liveLost?` · lost pkts ${liveLost}`:''}<br>`+
+    `kick thr &gt;${a.kickAcc}g${kickTag} + swing &gt;${a.kickGyro}°/s${a.manualGyro?' (manual)':''} · run thr &gt;${a.zones.walk.toFixed(2)}`;
   dbg.n=0;dbg.peakA=0;dbg.peakG=0;dbg.sumDyn=0;dbg.cntDyn=0;
 },500);
 
@@ -232,7 +237,7 @@ async function startRec(){
   if(!connected || !ctrlCh){ recWarn('sensor not connected — connect it on the Sensor tab'); return; }
   if(recMode==='live'){
     rec={mode:'live', startMs:Date.now(), raw:{ax:[],ay:[],az:[],gx:[],gy:[],gz:[]}, events:[], samples:0};
-    try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
+    lastSeq=null; try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){}
     recUI(true);
     return;
   }
@@ -255,7 +260,7 @@ async function stopRec(silent){
     const r=rec; rec=null; recUI(false);
     if(r.samples>0 || r.events.length>0){
       const sess={ id:Date.now(), date:new Date().toISOString(), type:$('sType').value, note:$('sNote').value,
-        durationMs:Date.now()-r.startMs, events:r.events, raw:r.raw, samples:r.samples };
+        durationMs:Date.now()-r.startMs, events:r.events, raw:r.raw, samples:r.samples, lostPkts:r.lostPkts||0 };
       await dbAdd(sess); if(!silent){ renderHistory(); openAnalytics(sess.id); }
     }
     return;
@@ -327,7 +332,9 @@ function onSyncPacket(dv){
   if(type==='D'){                                   // бинарный кусок файла
     if(sync.cur){ const b=new Uint8Array(dv.buffer.slice(dv.byteOffset+1, dv.byteOffset+dv.byteLength));
       sync.cur.parts.push(b); sync.cur.recv+=b.length;
-      if(sync.cur.size) setSync(`downloading ${sync.cur.name}: ${Math.round(100*sync.cur.recv/sync.cur.size)}%`); }
+      const now=performance.now();
+      if(sync.cur.size && now-(sync.cur.uiT||0)>250){ sync.cur.uiT=now;
+        setSync(`downloading ${sync.cur.name}: ${Math.round(100*sync.cur.recv/sync.cur.size)}%${sync.retry?` (try ${sync.retry.tries+1}/${SYNC_TRIES})`:''}`); } }
     return;
   }
   const s=new TextDecoder().decode(dv), payload=s.slice(1);
@@ -349,12 +356,23 @@ async function nextInQueue(){
   setSync(`downloading ${f.name}…`);
   try{ await ctrlCh.writeValue(new TextEncoder().encode('GET '+f.name)); }catch(e){ finishSync(); }
 }
+// недокачка (часть BLE-пакетов не дошла) → качаем файл ещё раз, до SYNC_TRIES раз всего, берём самый полный
+const SYNC_TRIES=3;
 async function onFileDone(){
   const c=sync.cur; sync.cur=null;
   if(c){
     try{
-      const buf=new Uint8Array(await new Blob(c.parts).arrayBuffer());
-      const sess=sessionFromRaw(c.name, buf, c.size);
+      let buf=new Uint8Array(await new Blob(c.parts).arrayBuffer());
+      const r = (sync.retry && sync.retry.name===c.name) ? sync.retry : {name:c.name, tries:0, best:null};
+      r.tries++; if(!r.best || buf.length>r.best.length) r.best=buf;
+      const complete = !c.size || buf.length===c.size;
+      if(!complete && r.tries<SYNC_TRIES && connected && ctrlCh){
+        sync.retry=r;
+        setSync(`${c.name}: ${(100*buf.length/c.size).toFixed(1)}% arrived — downloading again (${r.tries+1}/${SYNC_TRIES})…`);
+        try{ await ctrlCh.writeValue(new TextEncoder().encode('GET '+c.name)); return; }catch(e){}
+      }
+      sync.retry=null; buf=complete ? buf : r.best;
+      const sess=sessionFromRaw(c.name, buf, c.size, r.tries);
       if(sess){ sess.note=((dev&&dev.name)?dev.name+' · ':'')+sess.note;
                 await dbAdd(sess); markSynced(syncKey(c.name)); sync.done++; renderHistory();
                 if(sess.diag) setSync(sess.diag, 15000); }
@@ -366,10 +384,10 @@ async function onFileDone(){
 // Собираем объект сессии из CSV-сырья + прогон детектора по личным порогам.
 // Формат строки: ax,ay,az,gx,gy,gz (ускорение в мg, гироскоп в dps*10).
 // declared — размер файла, заявленный устройством (проверка целостности выгрузки).
-function sessionFromRaw(name, buf, declared){
+function sessionFromRaw(name, buf, declared, tries){
   const lines=new TextDecoder().decode(buf).split('\n');
   const raw={ax:[],ay:[],az:[],gx:[],gy:[],gz:[]};
-  let bad=0, peakA=0, peakG=0, skipped=0;
+  let skipped=0;
   for(const line of lines){
     const t=line.trim(); if(!t) continue;
     if(t.charCodeAt(0)>57){ skipped++; continue; }          // заголовок/мусор — не цифра и не минус
@@ -378,26 +396,24 @@ function sessionFromRaw(name, buf, declared){
     const ax=+v[0]/1000, ay=+v[1]/1000, az=+v[2]/1000, gx=+v[3]/10, gy=+v[4]/10, gz=+v[5]/10;
     if(![ax,ay,az,gx,gy,gz].every(Number.isFinite)){ skipped++; continue; }
     raw.ax.push(ax); raw.ay.push(ay); raw.az.push(az); raw.gx.push(gx); raw.gy.push(gy); raw.gz.push(gz);
-    const am=Math.hypot(ax,ay,az), gm=Math.hypot(gx,gy,gz);
-    if(am>peakA)peakA=am; if(gm>peakG)peakG=gm;
-    if(am>17 || gm>2200) bad++;
   }
   const rec=raw.ax.length; if(rec<50) return null;
-  let det; const events=[];
-  det=new Detector({ onEvent:(t,d)=>events.push({t:det.t, type:t, a:d.a, g:d.g}),
-                     onState:(st,act)=>events.push({t:det.t, type:st, a:act}) });
-  for(let i=0;i<rec;i++) det.push(raw.ax[i],raw.ay[i],raw.az[i],raw.gx[i],raw.gy[i],raw.gz[i]);
+  // сырьё в базе храним как пришло; события считаем по очищенному (битые склейки строк → вне диапазона)
+  const cl=cleanRaw(raw);
+  const events=detectEvents(cl.raw);
   const kicks=events.filter(e=>e.type==='KICK').length;
   const sizeOk = !declared || buf.length===declared;
-  const diag = `${name}: ${rec} smp · peak ${peakA.toFixed(1)}g/${Math.round(peakG)}dps · bad ${bad} · skip ${skipped} · kicks ${kicks} · ${sizeOk?'size OK':'SIZE '+buf.length+'/'+declared}`;
+  const lostPct = declared ? Math.max(0, 100*(1-buf.length/declared)) : 0;
+  const diag = `${name}: ${rec} smp · broken ${cl.nRange+cl.nSpike} · skip ${skipped} · kicks ${kicks} · ${sizeOk?'size OK':'lost '+lostPct.toFixed(1)+'%'}`;
   console.log('SYNC DIAG', diag);
   return { id:Date.now()+Math.floor(Math.random()*1000), date:new Date().toISOString(),
-           type:'Offline', note:name+(sizeOk?'':' ⚠ incomplete'), durationMs:rec*10,
-           events, raw, samples:rec, offline:true, diag };
+           type:'Offline', note:name+(sizeOk?'':` ⚠ incomplete (−${lostPct.toFixed(1)}%)`), durationMs:rec*10,
+           events, raw, samples:rec, offline:true, diag,
+           xfer:{ declared:declared||0, got:buf.length, skipped, tries:tries||1 } };
 }
 function finishSync(){ sync=null; enableLive(); }
 // включаем live-стрим (после завершения синка)
-async function enableLive(){ if(connected && ctrlCh){ try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){} } }
+async function enableLive(){ if(connected && ctrlCh){ lastSeq=null; try{ await ctrlCh.writeValue(new TextEncoder().encode('REC 1')); streaming=true; }catch(e){} } }
 
 // ================= ИСТОРИЯ =================
 async function renderHistory(){
@@ -405,7 +421,7 @@ async function renderHistory(){
   if(!list.length){ $('histList').innerHTML='<div class="muted">no recorded sessions yet</div>'; return; }
   $('histList').innerHTML=list.map(s=>{
     const d=new Date(s.id); const dur=mmss(Math.floor(s.durationMs/1000));
-    const k=s.events.filter(e=>e.type==='KICK').length;
+    const k=sessionKicks(s);
     return `<div class="row" onclick="openAnalytics(${s.id})" style="cursor:pointer">
       <span class="ico">📊</span>
       <span style="flex:1"><b>${s.type}</b> · ${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
@@ -416,7 +432,8 @@ async function renderHistory(){
 
 // ================= АНАЛИТИКА =================
 async function openAnalytics(id){
-  const s=await dbGet(id); if(!s) return;
+  const s0=await dbGet(id); if(!s0) return;
+  const s=sessionView(s0);           // сырьё очищено, события пересчитаны по текущим порогам
   const prof=loadProfile();
   const m=analyze(s,prof);
   const d=new Date(s.id);
@@ -424,6 +441,7 @@ async function openAnalytics(id){
     <div class="card">
       <h2>${s.type} · ${d.toLocaleDateString('en-GB')}</h2>
       <div class="muted">${d.toLocaleTimeString('en-GB')} · duration ${mmss(Math.floor(m.durS))}${s.note?' · '+s.note:''}</div>
+      ${qualityLine(s)}
     </div>
     <div class="grid2">
       <div class="tile"><div class="n" style="color:var(--kick)">${m.kicks}</div><div class="l"><svg class="ic" style="stroke:var(--kick)"><use href="#i-ball"/></svg>kicks</div></div>
@@ -466,6 +484,16 @@ async function openAnalytics(id){
   curSession=s;
   showTab('analytics');
 }
+// качество данных: сколько сэмплов починено, сколько не доехало
+function qualityLine(s){
+  const parts=[];
+  if(s.clean){ const fixed=s.clean.nRange+s.clean.nSpike;
+    parts.push(fixed ? `🧹 ${fixed} broken samples fixed (${(100*fixed/Math.max(1,s.clean.n)).toFixed(2)}%)` : '✓ no broken samples'); }
+  if(s.xfer && s.xfer.declared && s.xfer.got<s.xfer.declared)
+    parts.push(`⚠ ${(100*(1-s.xfer.got/s.xfer.declared)).toFixed(1)}% of the file did not arrive`);
+  if(s.lostPkts) parts.push(`⚠ ${s.lostPkts} live packets lost`);
+  return parts.length ? `<div class="muted" style="margin-top:4px;font-size:12px">${parts.join(' · ')}</div>` : '';
+}
 async function delSession(id){ if(confirm('Delete session?')){ await dbDel(id); renderHistory(); showTab('history'); } }
 
 // экспорт: сырьё + события в CSV. Сессия берётся из уже открытой аналитики (curSession), а не из базы:
@@ -477,9 +505,10 @@ function canShareFiles(){
 function sessionCSV(s){
   const out=['# events','t_ms,type,a_g,gyro_dps'];
   s.events.forEach(e=>out.push(`${e.t},${e.type},${e.a??''},${e.g??''}`));
-  out.push('','# raw @100Hz','i,ax,ay,az,gx,gy,gz');
-  const R=s.raw||{ax:[]}; const r=v=>Math.round(v*1000)/1000;
-  for(let i=0;i<R.ax.length;i++) out.push(`${i},${r(R.ax[i])},${r(R.ay[i])},${r(R.az[i])},${r(R.gx[i])},${r(R.gy[i])},${r(R.gz[i])}`);
+  // flag: 0 — как есть, 1 — было вне диапазона датчика, 2 — одиночный всплеск ускорения, 3 — скачок гиро (1–3 заменены интерполяцией)
+  out.push('','# raw @100Hz (cleaned; flag>0 = sample was broken and interpolated)','i,ax,ay,az,gx,gy,gz,flag');
+  const R=s.raw||{ax:[]}; const r=v=>Math.round(v*1000)/1000; const F=s.clean&&s.clean.flag;
+  for(let i=0;i<R.ax.length;i++) out.push(`${i},${r(R.ax[i])},${r(R.ay[i])},${r(R.az[i])},${r(R.gx[i])},${r(R.gy[i])},${r(R.gz[i])},${F?F[i]:0}`);
   return out.join('\n')+'\n';
 }
 async function exportCSV(how){
@@ -619,7 +648,9 @@ function computeThresholds(D){
   if(kickAccMax>runAccMax && runAccMax>0){ kickAcc = +(Math.max(runAccMax*1.15, kickAccMax*0.85)).toFixed(1); } // у удара, но выше бега
   else if(runAccMax>0){ kickAcc = +(runAccMax*1.25).toFixed(1); }
   else { kickAcc = 6; }
-  return {zones, kickAcc, runAccMax, kickAccMax};
+  const maxG=a=>a&&a.length?a.reduce((m,v)=>v>m?v:m,0):0;
+  const kickGyro=kickGyroFrom(maxG(D.RUN&&D.RUN.gyro), maxG(D.KICK&&D.KICK.gyro));   // null → базовый
+  return {zones, kickAcc, kickGyro, runAccMax, kickAccMax};
 }
 function calibCalc(){
   if(calib.recording) calibStop();
@@ -627,7 +658,9 @@ function calibCalc(){
   if(!t){ $('calibResult').innerHTML='<span style="color:var(--sprint)">record at least Walk and Run</span>'; return; }
   let prev={}; try{prev=JSON.parse(localStorage.getItem('fbl_calib')||'{}');}catch(e){}
   const saved={zones:t.zones, kickAcc:t.kickAcc, ts:Date.now()};
+  if(t.kickGyro) saved.kickGyro=t.kickGyro;
   if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // ручной override не затираем
+  if(prev.kickGyroManual!=null) saved.kickGyroManual=prev.kickGyroManual;
   localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
   localStorage.setItem('fbl_calib',JSON.stringify(saved));
   localStorage.setItem('fbl_calibmode','custom');
@@ -646,26 +679,33 @@ function applyCalibFromData(){
   if(t){ let prev={}; try{prev=JSON.parse(localStorage.getItem('fbl_calib')||'{}');}catch(e){}
     localStorage.setItem('fbl_zones',JSON.stringify(t.zones));
     const saved={zones:t.zones,kickAcc:t.kickAcc,ts:prev.ts||Date.now()};
+    if(t.kickGyro) saved.kickGyro=t.kickGyro;
     if(prev.kickManual!=null) saved.kickManual=prev.kickManual;   // ручной override не затираем
+    if(prev.kickGyroManual!=null) saved.kickGyroManual=prev.kickGyroManual;
     localStorage.setItem('fbl_calib',JSON.stringify(saved)); }
 }
 // ---- ручной порог удара (override): перебивает автоформулу, не затирается пересчётом ----
 function loadKickManual(){
   const c=readCalib();
   if($('kickManual')) $('kickManual').value = (c.kickManual!=null ? c.kickManual : '');
+  if($('kickGyroManual')) $('kickGyroManual').value = (c.kickGyroManual!=null ? c.kickGyroManual : '');
   updateKickManualMsg();
 }
 function updateKickManualMsg(){
   const el=$('kickManualMsg'); if(!el)return;
   const a=activeCalib(), src=a.source==='preset'?'base':'mine';
-  if(a.manual) el.innerHTML=`<span style="color:var(--run)">Manual: kicks counted from <b>${a.kickAcc}g</b> (overrides ${src} ${a.autoKick}g)</span>`;
-  else el.innerHTML=`Auto (${src}): kicks counted from <b>${a.autoKick}g</b>`;
+  const accTxt = a.manual ? `<span style="color:var(--run)"><b>${a.kickAcc}g</b> manual (${src}: ${a.autoKick}g)</span>` : `<b>${a.autoKick}g</b> auto (${src})`;
+  const gyrTxt = a.manualGyro ? `<span style="color:var(--run)"><b>${a.kickGyro}°/s</b> manual (${src}: ${a.autoGyro}°/s)</span>` : `<b>${a.autoGyro}°/s</b> auto (${src})`;
+  el.innerHTML=`Kick = impact over ${accTxt}<br>and leg swing over ${gyrTxt}`;
 }
 function applyKickManual(){
   let c={}; try{ c=JSON.parse(localStorage.getItem('fbl_calib')||'{}'); }catch(e){}
-  const v=($('kickManual').value||'').trim();
+  const v=($('kickManual').value||'').trim(), vg=(($('kickGyroManual')&&$('kickGyroManual').value)||'').trim();
+  const bad=()=>{ $('kickManualMsg').innerHTML='<span style="color:var(--sprint)">enter a positive number (or leave empty for auto)</span>'; };
   if(v===''){ delete c.kickManual; }
-  else { const n=parseFloat(v); if(isNaN(n)||n<=0){ $('kickManualMsg').innerHTML='<span style="color:var(--sprint)">enter a positive number</span>'; return; } c.kickManual=+n.toFixed(1); }
+  else { const n=parseFloat(v); if(isNaN(n)||n<=0) return bad(); c.kickManual=+n.toFixed(1); }
+  if(vg===''){ delete c.kickGyroManual; }
+  else { const n=parseFloat(vg); if(isNaN(n)||n<0) return bad(); c.kickGyroManual=Math.round(n); }
   localStorage.setItem('fbl_calib',JSON.stringify(c));
   if(detector) detector.reloadThresholds();
   updateKickManualMsg();
@@ -687,7 +727,7 @@ function renderCalibSummary(stats, zones, title, canReset){
       ${rows}</table></div>
     <div style="margin-top:12px;font-size:14px"><b>Thresholds (applied):</b><br>
       zones: idle&lt;${zones.idle.toFixed(3)} · walk&lt;${zones.walk.toFixed(3)} · run&lt;${zones.run.toFixed(3)}<br>
-      kick: acceleration&gt;${a.kickAcc}g${a.manual?' (manual)':''}</div>
+      kick: acceleration&gt;${a.kickAcc}g${a.manual?' (manual)':''} and leg swing&gt;${a.kickGyro}°/s${a.manualGyro?' (manual)':''}</div>
     ${canReset?'<button class="big ghost" style="margin-top:14px" onclick="calibReset()">↻ Restart calibration</button>':''}`;
   $('calibSummaryCard').style.display='block';
 }
@@ -725,7 +765,7 @@ function showTab(name){
   if(name==='calib')buildCalib();
 }
 
-const APP_VERSION='v2.10';
+const APP_VERSION='v2.11';
 if($('ver')) $('ver').textContent=APP_VERSION;
 applyCalibFromData();   // подхватить и пересчитать сохранённую калибровку
 fillProfile(); renderHistory();

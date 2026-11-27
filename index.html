@@ -153,6 +153,10 @@
         <label>Kick threshold override, g <span class="muted">(leave empty for auto)</span></label>
         <div style="display:flex;gap:8px">
           <input id="kickManual" type="number" inputmode="decimal" step="0.1" placeholder="auto" style="flex:1">
+        </div>
+        <label style="margin-top:10px;display:block">Leg swing threshold, °/s <span class="muted">(gyro; empty = auto, 0 = off)</span></label>
+        <div style="display:flex;gap:8px">
+          <input id="kickGyroManual" type="number" inputmode="numeric" step="10" placeholder="auto" style="flex:1">
           <button class="ghost" id="kickManualApply" style="white-space:nowrap">Apply</button>
         </div>
         <div class="muted" id="kickManualMsg" style="margin-top:6px"></div>
